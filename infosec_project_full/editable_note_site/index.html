@@ -6,15 +6,19 @@
   <title>信息安全原理笔记工作台</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/turndown/dist/turndown.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <h1>信息安全原理笔记工作台</h1>
-      <p>默认阅读模式隐藏源码；点击“编辑当前文档”时，像 Typora 一样在同一页面进入编辑。</p>
+      <p>支持阅读、搜索、导入和 Markdown / 所见即所得编辑。</p>
     </div>
     <div class="top-actions">
+      <button id="toggleLeftSidebarBtn">收起左栏</button>
+      <button id="toggleRightSidebarBtn">收起右栏</button>
+      <button id="toggleRichBtn">切换到所见即所得</button>
       <button id="editToggleBtn">编辑当前文档</button>
       <button id="reloadBtn">恢复原始内容</button>
       <button id="saveBtn">保存到站点</button>
@@ -24,7 +28,7 @@
   </header>
 
   <main class="app-grid">
-    <aside class="panel sidebar">
+    <aside id="sidebarPanel" class="panel sidebar">
       <div class="panel-title">站点导航</div>
 
       <div class="sidebar-section">
@@ -64,7 +68,7 @@
           <button id="importPreviewBtn">一键导入到编辑区</button>
           <button id="importSaveBtn">一键导入并保存到站点</button>
         </div>
-        <p class="hint">这两个功能需要用 <code>python scripts/server.py</code> 启动。部署到 GitHub Pages 时可阅读与搜索，但不能直接抓网页和写文件。</p>
+        <p class="hint">导入和保存需要本地运行 <code>python scripts/server.py</code>。</p>
       </div>
 
       <div class="sidebar-section stats-grid">
@@ -86,6 +90,8 @@
       </div>
     </aside>
 
+    <div id="leftResizer" class="panel-resizer" role="separator" aria-orientation="vertical" aria-label="调整左侧栏宽度"></div>
+
     <section class="panel workspace">
       <div class="workspace-toolbar">
         <div>
@@ -94,8 +100,17 @@
         </div>
         <div class="workspace-actions">
           <a id="permalink" href="#" class="ghost-link">当前文档链接</a>
-          <button id="toggleTocBtn" class="ghost-btn">切换目录栏</button>
         </div>
+      </div>
+
+      <div id="richToolbar" class="rich-toolbar hidden" aria-hidden="true">
+        <button data-cmd="bold">加粗</button>
+        <button data-cmd="italic">斜体</button>
+        <button data-cmd="h2">标题</button>
+        <button data-cmd="insertUnorderedList">列表</button>
+        <button data-cmd="blockquote">引用</button>
+        <button data-cmd="code">代码</button>
+        <button data-cmd="createLink">链接</button>
       </div>
 
       <div class="doc-shell">
@@ -103,7 +118,7 @@
         <div id="editorDrawer" class="editor-drawer hidden" aria-hidden="true">
           <div class="editor-head">
             <div>
-              <strong>源码编辑</strong>
+              <strong>Markdown 源码编辑</strong>
               <span class="hint">Ctrl / Cmd + S 保存，Esc 退出编辑</span>
             </div>
             <button id="closeEditorBtn" class="ghost-btn">关闭编辑器</button>
@@ -112,6 +127,8 @@
         </div>
       </div>
     </section>
+
+    <div id="rightResizer" class="panel-resizer" role="separator" aria-orientation="vertical" aria-label="调整右侧栏宽度"></div>
 
     <aside id="tocPanel" class="panel toc-panel">
       <div class="panel-title">当前目录</div>
@@ -126,7 +143,7 @@
   </main>
 
   <footer class="footer">
-    <p>已加入：全文搜索、自动目录、文档路由、Typora 风格阅读/编辑切换、GitHub Pages 工作流模板。</p>
+    <p>侧栏支持折叠与拖拽调宽，编辑内容会自动保存在浏览器缓存中。</p>
   </footer>
 
   <script src="app.js"></script>

@@ -13,8 +13,10 @@ const importPreviewBtn = document.getElementById('importPreviewBtn');
 const importSaveBtn = document.getElementById('importSaveBtn');
 const refreshLibraryBtn = document.getElementById('refreshLibraryBtn');
 const editToggleBtn = document.getElementById('editToggleBtn');
+const toggleLeftSidebarBtn = document.getElementById('toggleLeftSidebarBtn');
+const toggleRightSidebarBtn = document.getElementById('toggleRightSidebarBtn');
+const toggleRichBtn = document.getElementById('toggleRichBtn');
 const closeEditorBtn = document.getElementById('closeEditorBtn');
-const toggleTocBtn = document.getElementById('toggleTocBtn');
 const docSelect = document.getElementById('docSelect');
 const docTitleInput = document.getElementById('docTitle');
 const docSlugInput = document.getElementById('docSlug');
@@ -32,18 +34,101 @@ const docPath = document.getElementById('docPath');
 const modeText = document.getElementById('modeText');
 const permalink = document.getElementById('permalink');
 const editorDrawer = document.getElementById('editorDrawer');
+const richToolbar = document.getElementById('richToolbar');
+const leftResizer = document.getElementById('leftResizer');
+const rightResizer = document.getElementById('rightResizer');
 
 let library = [];
 let searchIndex = [];
 let currentDoc = null;
 let originalContent = '';
-let tocVisible = true;
+let leftSidebarCollapsed = false;
+let rightSidebarCollapsed = false;
+let richMode = false;
+const LAYOUT_STORAGE_KEY = 'editable-note-site-layout';
+const DEFAULT_LAYOUT = { leftWidth: 310, rightWidth: 250 };
+const layoutState = readLayoutState();
+const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
 
 marked.setOptions({ breaks: true, gfm: true });
 
 function setStatus(text, isError = false) {
   statusText.textContent = text;
-  statusText.style.color = isError ? '#ff8da1' : '#d9e5f3';
+  statusText.style.color = isError ? 'var(--danger)' : 'var(--text)';
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function readLayoutState() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY) || '{}');
+    return {
+      leftWidth: clamp(Number(parsed.leftWidth) || DEFAULT_LAYOUT.leftWidth, 240, 520),
+      rightWidth: clamp(Number(parsed.rightWidth) || DEFAULT_LAYOUT.rightWidth, 220, 420)
+    };
+  } catch (_) {
+    return { ...DEFAULT_LAYOUT };
+  }
+}
+
+function persistLayoutState() {
+  localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layoutState));
+}
+
+function applyLayoutState() {
+  document.documentElement.style.setProperty('--left-panel-width', `${layoutState.leftWidth}px`);
+  document.documentElement.style.setProperty('--right-panel-width', `${layoutState.rightWidth}px`);
+  document.body.classList.toggle('left-collapsed', leftSidebarCollapsed);
+  document.body.classList.toggle('right-collapsed', rightSidebarCollapsed);
+  toggleLeftSidebarBtn.textContent = leftSidebarCollapsed ? '展开左栏' : '收起左栏';
+  toggleRightSidebarBtn.textContent = rightSidebarCollapsed ? '展开右栏' : '收起右栏';
+  toggleLeftSidebarBtn.setAttribute('aria-expanded', String(!leftSidebarCollapsed));
+  toggleRightSidebarBtn.setAttribute('aria-expanded', String(!rightSidebarCollapsed));
+}
+
+function toggleLeftSidebar() {
+  leftSidebarCollapsed = !leftSidebarCollapsed;
+  applyLayoutState();
+  persistLayoutState();
+  setStatus(leftSidebarCollapsed ? '已收起左侧栏' : '已展开左侧栏');
+}
+
+function toggleRightSidebar() {
+  rightSidebarCollapsed = !rightSidebarCollapsed;
+  applyLayoutState();
+  persistLayoutState();
+  setStatus(rightSidebarCollapsed ? '已收起右侧栏' : '已展开右侧栏');
+}
+
+function startResize(side, evt) {
+  if (evt.button !== 0 || window.innerWidth <= 900) return;
+  if ((side === 'left' && leftSidebarCollapsed) || (side === 'right' && rightSidebarCollapsed)) return;
+  evt.preventDefault();
+  const startX = evt.clientX;
+  const startWidth = side === 'left' ? layoutState.leftWidth : layoutState.rightWidth;
+  document.body.classList.add('is-resizing');
+
+  const handleMove = moveEvt => {
+    const delta = moveEvt.clientX - startX;
+    if (side === 'left') {
+      layoutState.leftWidth = clamp(startWidth + delta, 240, 520);
+    } else {
+      layoutState.rightWidth = clamp(startWidth - delta, 220, 420);
+    }
+    applyLayoutState();
+  };
+
+  const handleUp = () => {
+    document.body.classList.remove('is-resizing');
+    persistLayoutState();
+    document.removeEventListener('pointermove', handleMove);
+    document.removeEventListener('pointerup', handleUp);
+  };
+
+  document.addEventListener('pointermove', handleMove);
+  document.addEventListener('pointerup', handleUp);
 }
 
 function slugify(text) {
@@ -207,10 +292,10 @@ function buildTOC() {
   });
 }
 
-function render() {
+function render(renderAnchors = true) {
   const processed = preprocess(editor.value);
   preview.innerHTML = marked.parse(processed);
-  attachAnchorIds();
+  if (renderAnchors) attachAnchorIds();
   buildTOC();
   localStorage.setItem(currentCacheKey(), editor.value);
   if (window.MathJax?.typesetPromise) {
@@ -218,10 +303,37 @@ function render() {
   }
 }
 
+function htmlToMarkdown(html) {
+  if (turndownService) {
+    return turndownService.turndown(html || '').trim();
+  }
+  return editor.value;
+}
+
+function updateRichMode(enabled) {
+  richMode = enabled;
+  document.body.classList.toggle('rich-mode', enabled);
+  richToolbar.classList.toggle('hidden', !enabled);
+  richToolbar.setAttribute('aria-hidden', String(!enabled));
+  preview.setAttribute('contenteditable', enabled ? 'true' : 'false');
+  preview.setAttribute('spellcheck', enabled ? 'true' : 'false');
+  toggleRichBtn.textContent = enabled ? '切换到纯 Markdown' : '切换到所见即所得';
+  modeText.textContent = enabled ? '所见即所得模式（语雀风格）' : (editorDrawer.classList.contains('hidden') ? '阅读模式（源码隐藏）' : '编辑模式（源码显示）');
+  if (enabled) {
+    openEditor(false);
+    render(false);
+    preview.focus();
+  } else {
+    preview.removeAttribute('contenteditable');
+    render(!editorDrawer.classList.contains('hidden'));
+  }
+}
+
 function openEditor(force = true) {
+  if (richMode && force) updateRichMode(false);
   editorDrawer.classList.toggle('hidden', !force);
   document.body.classList.toggle('reading-mode', !force);
-  modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
+  if (!richMode) modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
   editToggleBtn.textContent = force ? '返回阅读模式' : '编辑当前文档';
   editorDrawer.setAttribute('aria-hidden', String(!force));
   if (force) setTimeout(() => editor.focus(), 40);
@@ -313,7 +425,7 @@ async function openDocument(path, section = '') {
   const text = await resolveDocContent(doc);
   originalContent = text;
   editor.value = localStorage.getItem(currentCacheKey()) || text;
-  render();
+  render(!richMode);
   docPath.textContent = doc.path;
   permalink.href = hashForDoc(doc);
   permalink.textContent = `#doc=${doc.slug}`;
@@ -372,7 +484,7 @@ async function importUrl(mode) {
     currentDoc = { path: '__adhoc__', title: data.title || '网址导入', slug: slugify(data.slug || data.title || 'imported'), type: 'adhoc' };
     originalContent = data.markdown;
     editor.value = data.markdown;
-    render();
+    render(!richMode);
     openEditor(true);
     docPath.textContent = 'adhoc / 未保存导入';
     setStatus(`已导入到编辑区：${data.title}`);
@@ -444,7 +556,7 @@ editor.addEventListener('input', () => {
   if (currentDoc && currentDoc.type !== 'main') {
     docSlugInput.value = slugify(docSlugInput.value || currentDoc.slug || docTitleInput.value);
   }
-  render();
+  if (!richMode) render(true);
 });
 
 docTitleInput.addEventListener('input', () => {
@@ -462,7 +574,7 @@ refreshLibraryBtn.addEventListener('click', async () => {
 reloadBtn.addEventListener('click', () => {
   editor.value = originalContent;
   localStorage.removeItem(currentCacheKey());
-  render();
+  render(!richMode);
   setStatus('已恢复原始内容');
 });
 
@@ -472,7 +584,7 @@ saveBtn.addEventListener('click', async () => {
   } catch (err) {
     console.error(err);
     setStatus(`保存失败：${err.message}`, true);
-    alert(`保存失败：${err.message}\n\n请确认你是通过 python scripts/server.py 启动站点。GitHub Pages 仅支持只读浏览。`);
+    alert(`保存失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
   }
 });
 
@@ -496,7 +608,7 @@ importPreviewBtn.addEventListener('click', async () => {
   } catch (err) {
     console.error(err);
     setStatus(`导入失败：${err.message}`, true);
-    alert(`导入失败：${err.message}\n\n请确认你是通过 python scripts/server.py 启动站点。`);
+    alert(`导入失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
   }
 });
 
@@ -506,16 +618,46 @@ importSaveBtn.addEventListener('click', async () => {
   } catch (err) {
     console.error(err);
     setStatus(`导入保存失败：${err.message}`, true);
-    alert(`导入保存失败：${err.message}\n\n请确认你是通过 python scripts/server.py 启动站点。`);
+    alert(`导入保存失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
   }
 });
 
 editToggleBtn.addEventListener('click', () => openEditor(editorDrawer.classList.contains('hidden')));
 closeEditorBtn.addEventListener('click', () => openEditor(false));
+toggleLeftSidebarBtn.addEventListener('click', toggleLeftSidebar);
+toggleRightSidebarBtn.addEventListener('click', toggleRightSidebar);
+toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
+leftResizer.addEventListener('pointerdown', evt => startResize('left', evt));
+rightResizer.addEventListener('pointerdown', evt => startResize('right', evt));
+window.addEventListener('resize', applyLayoutState);
 
-toggleTocBtn.addEventListener('click', () => {
-  tocVisible = !tocVisible;
-  tocPanel.style.display = tocVisible ? '' : 'none';
+preview.addEventListener('input', () => {
+  if (!richMode) return;
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
+});
+
+richToolbar.addEventListener('click', evt => {
+  const btn = evt.target.closest('button[data-cmd]');
+  if (!btn || !richMode) return;
+  const cmd = btn.dataset.cmd;
+  preview.focus();
+  if (cmd === 'h2') {
+    document.execCommand('formatBlock', false, 'h2');
+  } else if (cmd === 'blockquote') {
+    document.execCommand('formatBlock', false, 'blockquote');
+  } else if (cmd === 'code') {
+    document.execCommand('insertHTML', false, '<code>代码</code>');
+  } else if (cmd === 'createLink') {
+    const link = prompt('请输入链接地址：', 'https://');
+    if (link) document.execCommand('createLink', false, link);
+  } else {
+    document.execCommand(cmd, false, null);
+  }
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
 });
 
 window.addEventListener('hashchange', async () => {
@@ -543,12 +685,17 @@ document.addEventListener('keydown', async evt => {
     evt.preventDefault();
     openEditor(editorDrawer.classList.contains('hidden'));
   }
+  if (mod && evt.shiftKey && evt.key.toLowerCase() === 'e') {
+    evt.preventDefault();
+    updateRichMode(!richMode);
+  }
 });
 
 async function init() {
   if (STATIC_HOST) {
-    setStatus('当前是静态只读模式：可阅读、搜索、导航；保存和网址导入需要本地服务端。');
+    setStatus('当前是只读模式，保存和网址导入需要本地服务端。');
   }
+  applyLayoutState();
   await loadLibrary();
   await rebuildSearchIndex();
   const { doc, section } = findDocByHash();
@@ -559,7 +706,7 @@ async function init() {
 
 init().catch(err => {
   console.error(err);
-  editor.value = `初始化失败：${err.message}\n\n请优先使用 python scripts/server.py 启动本项目。`;
+  editor.value = `初始化失败：${err.message}\n\n请使用 python scripts/server.py 启动本项目。`;
   render();
   setStatus(`初始化失败：${err.message}`, true);
 });
