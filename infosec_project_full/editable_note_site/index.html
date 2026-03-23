@@ -22,10 +22,85 @@
       <button id="editToggleBtn">编辑当前文档</button>
       <button id="reloadBtn">恢复原始内容</button>
       <button id="saveBtn">保存到站点</button>
+      <button id="deleteBtn" class="danger-btn">删除当前文档</button>
       <button id="downloadBtn">导出 Markdown</button>
       <button id="clearLocalBtn">清空缓存</button>
     </div>
   </header>
+
+  <section class="group-toolbar panel" aria-label="笔记分组">
+    <div class="group-toolbar-block">
+      <div class="panel-title">分组浏览</div>
+      <label class="field-label" for="groupFilterSelect">按分组筛选左侧笔记</label>
+      <select id="groupFilterSelect"></select>
+      <p class="hint">可以只看某一个分组，也可以切回“全部分组”。</p>
+    </div>
+    <div class="group-toolbar-block">
+      <div class="panel-title">当前文档分组</div>
+      <label class="field-label" for="currentGroupSelect">选择已有分组</label>
+      <select id="currentGroupSelect"></select>
+      <label class="field-label" for="groupInput">或输入新分组名</label>
+      <input id="groupInput" type="text" placeholder="例如 课程笔记 / 论文资料 / 已整理" />
+      <div class="mini-actions">
+        <button id="applyGroupBtn">保存分组</button>
+        <button id="clearGroupBtn" class="ghost-btn">移到未分组</button>
+      </div>
+    </div>
+    <div class="group-toolbar-block">
+      <div class="panel-title">顺序调整</div>
+      <p class="hint">可以继续使用上移 / 下移，也可以直接在左侧分组里拖拽笔记卡片；分组标题支持折叠。</p>
+      <div class="mini-actions">
+        <button id="moveDocUpBtn">上移</button>
+        <button id="moveDocDownBtn">下移</button>
+      </div>
+      <div id="groupMetaText" class="hint">当前文档未分组。</div>
+    </div>
+    <div class="group-toolbar-block">
+      <div class="panel-title">分组管理</div>
+      <label class="field-label" for="manageGroupSelect">选择要管理的分组</label>
+      <select id="manageGroupSelect"></select>
+      <label class="field-label" for="newGroupInput">新建 / 重命名分组名</label>
+      <input id="newGroupInput" type="text" placeholder="例如 期末复习 / 论文阅读 / 已归档" />
+      <div class="mini-actions">
+        <button id="createGroupBtn">新建分组</button>
+        <button id="renameGroupBtn">重命名分组</button>
+        <button id="deleteGroupBtn" class="danger-btn">删除空分组</button>
+      </div>
+      <div id="groupManageHint" class="hint">只有空分组可以删除；重命名会同步更新该分组下全部笔记。</div>
+    </div>
+  </section>
+
+  <section class="usage-guide" aria-label="功能说明">
+    <div class="guide-hero">
+      <div class="guide-eyebrow">功能说明</div>
+      <h2>无须登录，启动本地服务后直接访问网站即可开始使用</h2>
+      <p>这个站点用于管理本地 Markdown 笔记和网页抓取结果。左侧负责检索、切换和导入网址，中间负责阅读与编辑，保存后会把文件直接写回当前项目目录。</p>
+    </div>
+    <div class="guide-grid">
+      <article class="guide-card">
+        <h3>怎么使用</h3>
+        <p>1. 双击 <code>begin.bat</code>，它会自动检查环境、安装依赖并启动网站。</p>
+        <p>2. 浏览器打开终端提示的网址，默认是 <code>http://127.0.0.1:8000</code>。</p>
+        <p>3. 在左侧搜索现有文档，或输入网页地址导入内容。</p>
+      </article>
+      <article class="guide-card">
+        <h3>抓取结果保存位置</h3>
+        <p>导入后保存的 Markdown 会写入 <code>content/imports/&lt;slug&gt;.md</code>。</p>
+        <p>网页里的图片会下载到 <code>content/assets/&lt;slug&gt;/</code>。</p>
+        <p>文档索引会自动更新到 <code>content/library.json</code>。</p>
+      </article>
+      <article class="guide-card">
+        <h3>编辑与导出</h3>
+        <p>点击“编辑当前文档”进入源码模式，<code>Ctrl/Cmd + S</code> 保存，<code>Esc</code> 返回阅读模式。</p>
+        <p>“删除当前文档”会删除已保存的导入笔记，并同步清理索引和对应资源目录。</p>
+      </article>
+      <article class="guide-card">
+        <h3>适用场景</h3>
+        <p>适合把课程资料、博客文章、知识库页面抓取为本地 Markdown，再继续整理、检索、维护。</p>
+        <p>顶部还可以对笔记分组、重命名分组、删除空分组；如果只是用静态服务器打开页面，这些写入类操作会变成只读模式。</p>
+      </article>
+    </div>
+  </section>
 
   <main class="app-grid">
     <aside id="sidebarPanel" class="panel sidebar">
@@ -68,7 +143,7 @@
           <button id="importPreviewBtn">一键导入到编辑区</button>
           <button id="importSaveBtn">一键导入并保存到站点</button>
         </div>
-        <p class="hint">导入和保存需要本地运行 <code>python scripts/server.py</code>。</p>
+        <p class="hint">导入和保存需要本地运行 <code>python scripts/server.py</code>，Windows 下推荐直接双击 <code>begin.bat</code>。</p>
       </div>
 
       <div class="sidebar-section stats-grid">

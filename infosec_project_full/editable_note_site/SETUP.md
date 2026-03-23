@@ -4,11 +4,12 @@
 
 ### Windows 用户
 
-双击运行 `setup.bat` 脚本，即可自动完成以下操作：
+双击运行 `begin.bat` 脚本，即可自动完成以下操作：
 
-1. 创建名为 `note_book` 的 conda 环境（Python 3.13）
-2. 安装所有必需的依赖包
-3. 显示启动说明
+1. 优先使用或自动创建名为 `note_book` 的 conda 环境（Python 3.13）
+2. 如果没有 conda，则尝试使用系统 Python
+3. 自动安装所有必需依赖
+4. 直接启动网站并显示访问地址
 
 ### 手动配置
 
@@ -28,14 +29,18 @@ pip install -r requirements.txt
 ## 启动服务器
 
 ```bash
-# 激活环境（如果还没激活）
-conda activate note_book
+# 推荐直接双击
+begin.bat
+```
 
-# 启动服务器
+或者手动：
+
+```bash
+conda activate note_book
 python scripts/server.py
 ```
 
-然后在浏览器中打开：http://127.0.0.1:8000
+然后在浏览器中打开终端提示的网址，默认是：http://127.0.0.1:8000
 
 ## 依赖包说明
 

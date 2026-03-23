@@ -1,193 +1,358 @@
-# Editable Note Site v3
+# 可编辑笔记网站
 
-这是升级后的可编辑笔记网站，重点改成了 **Typora 风格的阅读 / 编辑一体化体验**：
+一个面向本地知识库整理的 Markdown 工作台。它支持读取站点内已有文档、抓取网页正文、下载网页图片、将内容转成 Markdown 并保存回本地目录，同时提供搜索、目录导航和阅读/编辑一体化界面。
 
-- 默认只显示渲染结果（阅读模式）
-- 点击“编辑当前文档”后，在同一页面右侧拉出源码编辑器
-- 按 `Esc` 退出编辑，按 `Ctrl/Cmd + S` 保存
+## 1. 项目用途
 
----
+- 把网页正文抓取为本地 Markdown
+- 自动下载网页中的图片资源
+- 将导入结果纳入站点文档库
+- 在浏览器中继续阅读、检索、编辑和导出
+- 删除不再需要的导入笔记，并同步清理资源目录
+- 对笔记进行分组、筛选、分组折叠、拖拽排序，以及新建/重命名/删除空分组
 
-## 2.0 版本说明（你可以在仓库历史里直接看到）
+## 2. 抓取后的内容保存在哪里
 
-为便于你确认“仓库是否真的发生了变更”，这里补一份明确的 2.0 版本记录。
+这是这个项目最关键的落盘位置：
 
-### v2.0 新增与改进
+- 主笔记：`content/note.md`
+- 导入后的 Markdown 文档：`content/imports/<slug>.md`
+- 抓取网页时下载的图片：`content/assets/<slug>/`
+- 文档索引：`content/library.json`
 
-- 新增**所见即所得（WYSIWYG）编辑模式**，可在阅读与富文本编辑之间切换。
-- 新增**可收起边栏（专注模式）**，收起后正文区域可占据更大可视宽度。
-- 新增**富文本工具栏**（加粗、斜体、标题、列表、引用、代码、链接等常用操作）。
-- 优化整体视觉样式为更偏“报刊阅读”的排版风格，提升长文阅读体验。
+说明：
 
-### 如何确认你本地仓库已更新到这个版本
+- `<slug>` 来自网页标题，经过 `slugify()` 处理。
+- 点击“导入并保存到站点”后，Markdown 会写入 `content/imports/`，并自动更新 `content/library.json`。
+- 分组信息和组内顺序保存在 `content/library.json` 的 `groups`、`group`、`order` 字段中。
+- 调用 `/api/import-url` 时，服务端会先把网页图片下载到 `content/assets/<slug>/`，即使当前只是“导入到编辑区”，图片目录也可能已经生成。
+- 未保存到文件系统的临时编辑内容会保存在浏览器 `localStorage`，键前缀为 `editable-note-site-cache:`。
 
-在仓库目录运行：
-
-```bash
-git log --oneline -n 5
-```
-
-如果能看到类似以下提交，说明版本更新已经存在于仓库历史：
-
-```text
-6ba33fb Add WYSIWYG rich-edit mode, sidebar collapse and visual redesign
-```
-
-## 本次新增功能
-
-### 1. 阅读与源码一体化（Typora 风格）
-
-- 平时隐藏原文源码，只显示渲染结果
-- 需要修改时再打开编辑器
-- 预览始终同步更新
-
-### 2. 自动目录（TOC）
-
-- 自动读取 `h1 / h2 / h3`
-- 右侧目录栏可以跳转到对应章节
-- URL hash 会同步文档和章节位置
-
-### 3. 全文搜索
-
-- 启动后会扫描 `library.json` 中的全部文档
-- 可按标题与正文关键字搜索
-- 点击结果会直接打开对应文档
-
-### 4. 自动导航站点
-
-- 左侧文档列表就是站点导航
-- 支持快速切换、当前文档高亮、文档链接
-- 通过 hash 路由实现“单页多文档”站点
-
-### 5. GitHub Pages 工作流模板
-
-新增：
-
-```text
-.github/workflows/deploy-editable-note-site.yml
-```
-
-用途：
-- 把 `editable_note_site/` 子目录作为 Pages 构建产物
-- 适合独立仓库或单独子项目部署
-
-> 注意：GitHub Pages 版本是 **只读模式**。因为 Pages 不能直接写本地文件，也不能充当网页抓取服务端。
-
-### 6. 网址一键导入（保留）
-
-需要本地服务端：
-
-```bash
-python scripts/server.py
-```
-
-按钮：
-- `一键导入到编辑区`
-- `一键导入并保存到站点`
-
-## 项目结构
+## 3. 目录结构
 
 ```text
 editable_note_site/
-├── index.html
-├── style.css
-├── app.js
-├── README.md
-├── WORKLOG.md
-├── .nojekyll
+├── index.html                  # 前端页面
+├── style.css                   # 前端样式
+├── app.js                      # 前端交互逻辑
+├── README.md                   # 技术文档
+├── SETUP.md                    # 快速配置说明
+├── begin.bat                   # Windows 一键启动入口（推荐）
+├── scripts/begin.ps1           # begin.bat 调用的 PowerShell 启动器
+├── setup.bat                   # 兼容入口，内部跳转到 begin.bat
+├── 启动网站.bat                # 兼容入口，内部跳转到 begin.bat
+├── requirements.txt            # Python 依赖
 ├── content/
-│   ├── note.md
-│   ├── library.json
-│   ├── imports/
-│   └── assets/
-├── scripts/
-│   ├── server.py
-│   ├── fetch_note.py
-│   ├── fetch_assets.py
-│   └── fetch_all.py
-└── .github/
-    └── workflows/
-        └── deploy-editable-note-site.yml
+│   ├── note.md                 # 主笔记
+│   ├── library.json            # 文档索引
+│   ├── imports/                # 导入后的 Markdown
+│   └── assets/                 # 导入网页时下载的图片
+└── scripts/
+    ├── server.py               # 本地 HTTP 服务 + 导入/保存 API
+    ├── fetch_note.py           # 拉取远端主笔记
+    ├── fetch_assets.py         # 拉取远端图片资源
+    └── fetch_all.py            # 批量执行抓取脚本
 ```
 
-## 启动方式
+## 4. 运行方式
 
-### 本地完整模式（推荐）
+### 4.1 Windows 双击启动
+
+推荐直接双击：
+
+```text
+begin.bat
+```
+
+脚本会按以下顺序处理：
+
+1. 如果检测到 Conda，则优先使用或自动创建 `note_book` 环境
+2. 如果没有 Conda，则退回 `py -3` 或 `python`
+3. 自动检查 `requests`、`beautifulsoup4`、`markdownify`
+4. 缺依赖时自动执行安装
+5. 启动 `scripts/server.py`
+
+服务启动后：
+
+- 终端会打印实际访问地址
+- 默认地址是 `http://127.0.0.1:8000`
+- 如果 8000 端口被占用，会自动尝试后续端口
+- 设置了 `AUTO_OPEN_BROWSER=1` 时会自动打开浏览器
+- `setup.bat` 与 `启动网站.bat` 现在都只作为兼容入口，内部会跳转到 `begin.bat`
+
+### 4.2 手动启动
 
 ```bash
-cd editable_note_site
+pip install -r requirements.txt
 python scripts/server.py
 ```
 
-打开：
+也可以使用环境变量：
 
-```text
-http://127.0.0.1:8000/
+```bash
+set HOST=127.0.0.1
+set PORT=8000
+set AUTO_OPEN_BROWSER=1
+python scripts/server.py
 ```
 
-本地完整模式支持：
-- 编辑
-- 保存
-- 一键导入网址
-- 下载网页图片到本地
-- 自动更新文档索引
+## 5. 启动后的访问地址
 
-### 静态只读模式
+默认是：
+
+```text
+http://127.0.0.1:8000
+```
+
+`server.py` 启动时会输出类似：
+
+```text
+可编辑笔记网站已启动
+访问地址: http://127.0.0.1:8000
+抓取与保存位置:
+  Markdown 主笔记: .../content/note.md
+  导入后的 Markdown: .../content/imports
+  下载的图片资源: .../content/assets
+  文档索引: .../content/library.json
+```
+
+如果默认端口被占用，服务端会自动切换端口，并打印最终地址。
+
+## 6. 前后端工作方式
+
+### 6.1 前端
+
+前端由三个静态文件构成：
+
+- `index.html`
+- `style.css`
+- `app.js`
+
+主要功能：
+
+- 左侧文档导航和全文搜索
+- 中间阅读区
+- 右侧 Markdown 抽屉编辑器
+- 支持导入网址、保存、导出、目录跳转
+- 本地缓存未保存内容
+
+### 6.2 后端
+
+后端是一个基于 `SimpleHTTPRequestHandler` 的本地服务，负责两类工作：
+
+- 提供静态文件访问
+- 提供保存与导入 API
+
+核心文件：
+
+- `scripts/server.py`
+
+## 7. API 说明
+
+### `GET /api/library`
+
+读取 `content/library.json`，返回当前站点文档索引。
+
+### `GET /api/import-url?url=<encoded_url>`
+
+作用：
+
+- 抓取网页正文
+- 下载页面图片到 `content/assets/<slug>/`
+- 将 HTML 转成 Markdown
+- 返回 `{ title, slug, markdown }`
+
+注意：
+
+- 这个接口本身不会把 Markdown 写入 `content/imports/`
+- 真正落盘依赖前端随后调用 `/api/save-document`
+
+### `POST /api/save-document`
+
+请求体示例：
+
+```json
+{
+  "path": "content/imports/example.md",
+  "title": "Example",
+  "slug": "example",
+  "markdown": "---\ntitle: Example\n---\n\ncontent",
+  "type": "import",
+  "sourceUrl": "https://example.com/article"
+}
+```
+
+作用：
+
+- 将 Markdown 写入指定路径
+- 自动更新 `content/library.json`
+- 返回保存后的相对路径
+
+### `POST /api/delete-document`
+
+请求体示例：
+
+```json
+{
+  "path": "./content/imports/example.md"
+}
+```
+
+作用：
+
+- 删除指定导入文档
+- 从 `content/library.json` 中移除对应索引
+- 删除 `content/assets/<slug>/` 资源目录（如果存在）
+
+限制：
+
+- 主笔记 `content/note.md` 不允许删除
+- 未保存到站点的临时导入内容不允许删除
+
+### `POST /api/update-document-meta`
+
+请求体示例：
+
+```json
+{
+  "path": "./content/imports/example.md",
+  "group": "课程笔记",
+  "order": 2
+}
+```
+
+作用：
+
+- 更新文档所属分组
+- 更新文档在组内的顺序
+- 写回 `content/library.json`
+
+### `POST /api/create-group`
+
+请求体示例：
+
+```json
+{
+  "name": "论文阅读"
+}
+```
+
+作用：
+
+- 创建一个新的空分组
+- 将分组注册到 `content/library.json`
+
+### `POST /api/rename-group`
+
+请求体示例：
+
+```json
+{
+  "oldName": "论文阅读",
+  "newName": "论文精读"
+}
+```
+
+作用：
+
+- 重命名指定分组
+- 同步更新该分组下全部文档的 `group` 字段
+
+### `POST /api/delete-group`
+
+请求体示例：
+
+```json
+{
+  "name": "已清空分组"
+}
+```
+
+作用：
+
+- 删除一个空分组
+- 如果该分组下还有笔记，接口会直接拒绝
+
+## 8. 界面说明
+
+页面顶部已经增加了一块始终可见的“功能说明”，用于提示：
+
+- 如何启动站点
+- 默认访问地址
+- 网页抓取结果保存位置
+- 如何对笔记分组和调整顺序
+- 左侧分组如何折叠和拖拽整理
+- 编辑/导出方式
+- 本地完整模式与静态只读模式的区别
+
+如果是技术同事接手项目，不需要先看源码，打开首页即可理解基本工作流。
+
+## 9. 静态模式 vs 本地服务模式
+
+### 静态模式
+
+例如：
 
 ```bash
 python -m http.server 8000
 ```
 
-静态模式支持：
+可用：
+
 - 阅读
 - 搜索
-- 目录跳转
-- 多文档导航
+- 目录导航
 
-静态模式不支持：
-- 保存到本地站点
-- 一键抓取网址
+不可用：
 
-## 键盘快捷键
+- `POST /api/save-document`
+- `GET /api/import-url`
+- 自动写入本地文件
 
-- `Ctrl/Cmd + S`：保存当前文档
-- `Ctrl/Cmd + E`：打开/关闭编辑器
-- `Esc`：退出编辑器
+### 本地服务模式
 
-## GitHub Pages 部署说明
-
-如果你要部署到 GitHub Pages：
-
-1. 把整个 `editable_note_site` 目录放进仓库
-2. 确保 workflow 文件路径正确
-3. 到 GitHub 仓库设置里启用 Pages / Actions
-4. Push 后自动部署
-
-### 注意
-
-如果你的仓库本身已经在用 MkDocs 或其他 Pages 工作流，
-这个工作流可能会与现有部署冲突。更稳妥的方式是：
-
-- 用单独仓库部署这个编辑站
-- 或者把 workflow 改成手动触发
-
-## 依赖
-
-本地服务端依赖：
+例如：
 
 ```bash
-pip install requests beautifulsoup4 markdownify
+python scripts/server.py
 ```
 
-## Git 提交示例
+可用：
 
-```bash
-git add .
-git commit -m "feat: add typora-like reading mode, toc, search and pages workflow"
-git push
+- 阅读
+- 搜索
+- 编辑
+- 保存到站点
+- 导入网页
+- 下载图片到本地
+- 自动更新文档索引
+
+## 10. 依赖
+
+`requirements.txt` 当前包含：
+
+```text
+requests>=2.32.0
+beautifulsoup4>=4.12.0
+markdownify>=1.2.0
 ```
 
-## 关于同步到 GitHub
+## 11. 常见开发点
 
-我已经为你补齐了可推送的目录和工作流模板。
-如果当前仓库权限允许，直接 push 即可生效；如果仍然是受限仓库，则需要你在本地执行 git push。
+如果后续要继续扩展，优先关注这些文件：
+
+- `scripts/server.py`：导入逻辑、保存逻辑、启动行为
+- `app.js`：文档加载、缓存、编辑、搜索、导入按钮行为
+- `index.html`：页面布局和功能说明入口
+- `style.css`：整体界面风格和响应式布局
+
+## 12. 当前这次优化包含什么
+
+本次已经补上：
+
+- 技术向 README
+- 页面顶部功能说明
+- Windows 双击启动脚本 `begin.bat`
+- 服务端启动时打印访问地址和保存位置
+- 端口占用时自动切换到可用端口
+- 启动后自动打开浏览器的能力

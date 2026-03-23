@@ -7,6 +7,7 @@ const editor = document.getElementById('editor');
 const preview = document.getElementById('preview');
 const reloadBtn = document.getElementById('reloadBtn');
 const saveBtn = document.getElementById('saveBtn');
+const deleteBtn = document.getElementById('deleteBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const clearLocalBtn = document.getElementById('clearLocalBtn');
 const importPreviewBtn = document.getElementById('importPreviewBtn');
@@ -37,8 +38,23 @@ const editorDrawer = document.getElementById('editorDrawer');
 const richToolbar = document.getElementById('richToolbar');
 const leftResizer = document.getElementById('leftResizer');
 const rightResizer = document.getElementById('rightResizer');
+const groupFilterSelect = document.getElementById('groupFilterSelect');
+const currentGroupSelect = document.getElementById('currentGroupSelect');
+const groupInput = document.getElementById('groupInput');
+const applyGroupBtn = document.getElementById('applyGroupBtn');
+const clearGroupBtn = document.getElementById('clearGroupBtn');
+const moveDocUpBtn = document.getElementById('moveDocUpBtn');
+const moveDocDownBtn = document.getElementById('moveDocDownBtn');
+const groupMetaText = document.getElementById('groupMetaText');
+const manageGroupSelect = document.getElementById('manageGroupSelect');
+const newGroupInput = document.getElementById('newGroupInput');
+const createGroupBtn = document.getElementById('createGroupBtn');
+const renameGroupBtn = document.getElementById('renameGroupBtn');
+const deleteGroupBtn = document.getElementById('deleteGroupBtn');
+const groupManageHint = document.getElementById('groupManageHint');
 
 let library = [];
+let libraryGroups = [];
 let searchIndex = [];
 let currentDoc = null;
 let originalContent = '';
@@ -46,9 +62,15 @@ let leftSidebarCollapsed = false;
 let rightSidebarCollapsed = false;
 let richMode = false;
 const LAYOUT_STORAGE_KEY = 'editable-note-site-layout';
+const GROUP_COLLAPSE_STORAGE_KEY = 'editable-note-site-group-collapse';
 const DEFAULT_LAYOUT = { leftWidth: 310, rightWidth: 250 };
 const layoutState = readLayoutState();
 const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
+const ALL_GROUPS_VALUE = '__ALL_GROUPS__';
+const UNGROUPED_LABEL = '未分组';
+let currentGroupFilter = ALL_GROUPS_VALUE;
+let collapsedGroups = readCollapsedGroups();
+let draggedDocPath = null;
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -59,6 +81,43 @@ function setStatus(text, isError = false) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function normalizeGroupName(group) {
+  return (group || '').trim();
+}
+
+function displayGroupName(group) {
+  return normalizeGroupName(group) || UNGROUPED_LABEL;
+}
+
+function getGroupOrderMap() {
+  const map = new Map();
+  libraryGroups.forEach((group, index) => {
+    map.set(group.name, Number.isFinite(Number(group.order)) ? Number(group.order) : index + 1);
+  });
+  return map;
+}
+
+function documentSortValue(doc) {
+  const group = normalizeGroupName(doc.group);
+  const groupOrder = getGroupOrderMap().get(group) ?? 999999;
+  const typeRank = doc.type === 'main' ? 0 : 1;
+  const order = Number.isFinite(Number(doc.order)) ? Number(doc.order) : 999999;
+  const title = (doc.title || '').toLocaleLowerCase('zh-CN');
+  return [groupOrder, group.toLocaleLowerCase('zh-CN'), typeRank, order, title];
+}
+
+function sortDocuments(docs) {
+  return [...docs].sort((a, b) => {
+    const [groupOrderA, groupA, rankA, orderA, titleA] = documentSortValue(a);
+    const [groupOrderB, groupB, rankB, orderB, titleB] = documentSortValue(b);
+    return groupOrderA - groupOrderB
+      || groupA.localeCompare(groupB, 'zh-CN')
+      || rankA - rankB
+      || orderA - orderB
+      || titleA.localeCompare(titleB, 'zh-CN');
+  });
 }
 
 function readLayoutState() {
@@ -73,8 +132,20 @@ function readLayoutState() {
   }
 }
 
+function readCollapsedGroups() {
+  try {
+    return JSON.parse(localStorage.getItem(GROUP_COLLAPSE_STORAGE_KEY) || '{}');
+  } catch (_) {
+    return {};
+  }
+}
+
 function persistLayoutState() {
   localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layoutState));
+}
+
+function persistCollapsedGroups() {
+  localStorage.setItem(GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsedGroups));
 }
 
 function applyLayoutState() {
@@ -142,6 +213,227 @@ function slugify(text) {
 
 function currentCacheKey() {
   return currentDoc ? `${LOCAL_CACHE_PREFIX}${currentDoc.path}` : `${LOCAL_CACHE_PREFIX}adhoc`;
+}
+
+function cacheKeyForPath(path) {
+  return `${LOCAL_CACHE_PREFIX}${path}`;
+}
+
+function groupStorageKey(group) {
+  return normalizeGroupName(group) || '__ungrouped__';
+}
+
+function isGroupCollapsed(group) {
+  return Boolean(collapsedGroups[groupStorageKey(group)]);
+}
+
+function toggleGroupCollapsed(group) {
+  const key = groupStorageKey(group);
+  collapsedGroups[key] = !collapsedGroups[key];
+  persistCollapsedGroups();
+  renderLibraryList();
+}
+
+function getDocGroup(doc) {
+  return normalizeGroupName(doc?.group);
+}
+
+function getAvailableGroups() {
+  const names = [...libraryGroups.map(group => group.name), ...library.map(doc => getDocGroup(doc))];
+  return [...new Set(names.filter(Boolean))];
+}
+
+function getFilteredLibrary() {
+  if (currentGroupFilter === ALL_GROUPS_VALUE) return library;
+  return library.filter(doc => getDocGroup(doc) === currentGroupFilter);
+}
+
+function getGroupSiblings(doc) {
+  return sortDocuments(library.filter(item => getDocGroup(item) === getDocGroup(doc)));
+}
+
+function canManageGroup(doc) {
+  return Boolean(doc && doc.path && doc.path !== '__adhoc__');
+}
+
+function getDocByPath(path) {
+  return library.find(doc => doc.path === path) || null;
+}
+
+function clearDragIndicators() {
+  docList.querySelectorAll('.drop-target, .dragging').forEach(el => {
+    el.classList.remove('drop-target', 'dragging');
+  });
+}
+
+function handleDragStart(evt, doc) {
+  if (!canManageGroup(doc)) return;
+  draggedDocPath = doc.path;
+  evt.dataTransfer.effectAllowed = 'move';
+  evt.dataTransfer.setData('text/plain', doc.path);
+  evt.currentTarget.classList.add('dragging');
+}
+
+function handleDragEnd() {
+  draggedDocPath = null;
+  clearDragIndicators();
+}
+
+function handleDragOver(evt) {
+  if (!draggedDocPath) return;
+  evt.preventDefault();
+  evt.dataTransfer.dropEffect = 'move';
+}
+
+function handleDragEnter(evt) {
+  if (!draggedDocPath) return;
+  evt.currentTarget.classList.add('drop-target');
+}
+
+function handleDragLeave(evt) {
+  evt.currentTarget.classList.remove('drop-target');
+}
+
+async function reorderGroupDocuments(group, docs) {
+  const normalizedGroup = normalizeGroupName(group);
+  for (let i = 0; i < docs.length; i++) {
+    const doc = docs[i];
+    await updateDocumentMeta(doc.path, { group: normalizedGroup, order: i + 1 });
+  }
+}
+
+async function handleDropToGroup(evt, targetGroup, beforePath = null) {
+  if (!draggedDocPath) return;
+  evt.preventDefault();
+  evt.stopPropagation();
+  const dragged = getDocByPath(draggedDocPath);
+  if (!dragged) return;
+
+  const sourceGroup = getDocGroup(dragged);
+  const normalizedTargetGroup = normalizeGroupName(targetGroup);
+  if (sourceGroup === normalizedTargetGroup && beforePath === dragged.path) {
+    handleDragEnd();
+    return;
+  }
+  const sourceDocs = sortDocuments(library.filter(doc => getDocGroup(doc) === sourceGroup && doc.path !== dragged.path));
+  const targetDocs = sortDocuments(library.filter(doc => getDocGroup(doc) === normalizedTargetGroup && doc.path !== dragged.path));
+
+  let insertIndex = targetDocs.length;
+  if (beforePath) {
+    const targetIndex = targetDocs.findIndex(doc => doc.path === beforePath);
+    insertIndex = targetIndex === -1 ? targetDocs.length : targetIndex;
+  }
+
+  const movedDoc = { ...dragged, group: normalizedTargetGroup };
+  targetDocs.splice(insertIndex, 0, movedDoc);
+
+  if (sourceGroup === normalizedTargetGroup) {
+    await reorderGroupDocuments(normalizedTargetGroup, targetDocs);
+  } else {
+    await reorderGroupDocuments(sourceGroup, sourceDocs);
+    await reorderGroupDocuments(normalizedTargetGroup, targetDocs);
+  }
+
+  if (currentGroupFilter !== ALL_GROUPS_VALUE && currentGroupFilter !== sourceGroup && currentGroupFilter !== normalizedTargetGroup) {
+    currentGroupFilter = ALL_GROUPS_VALUE;
+  }
+  await loadLibrary();
+  await openDocument(dragged.path);
+  setStatus(sourceGroup === normalizedTargetGroup ? '已拖拽调整组内顺序' : `已移动到分组：${displayGroupName(normalizedTargetGroup)}`);
+  handleDragEnd();
+}
+
+function canDeleteDoc(doc) {
+  return Boolean(doc && doc.type !== 'main' && doc.path && doc.path !== '__adhoc__');
+}
+
+function updateDeleteButtonState() {
+  if (!deleteBtn) return;
+  const deletable = canDeleteDoc(currentDoc);
+  deleteBtn.disabled = !deletable;
+  deleteBtn.title = deletable ? '删除当前导入文档' : '主笔记和未保存导入内容不可删除';
+}
+
+function getPendingGroupValue() {
+  const fromInput = normalizeGroupName(groupInput.value);
+  const fromSelect = normalizeGroupName(currentGroupSelect.value);
+  return fromInput || fromSelect;
+}
+
+function getManagedGroupValue() {
+  return normalizeGroupName(manageGroupSelect.value);
+}
+
+function getGroupDocumentCount(group) {
+  const normalized = normalizeGroupName(group);
+  return library.filter(doc => getDocGroup(doc) === normalized).length;
+}
+
+function renderGroupSelectors() {
+  const groups = getAvailableGroups();
+  const currentGroup = getDocGroup(currentDoc);
+  if (currentGroupFilter !== ALL_GROUPS_VALUE && currentGroupFilter !== '' && !groups.includes(currentGroupFilter)) {
+    currentGroupFilter = ALL_GROUPS_VALUE;
+  }
+  groupFilterSelect.innerHTML = [
+    `<option value="${ALL_GROUPS_VALUE}">全部分组</option>`,
+    `<option value="">${UNGROUPED_LABEL}</option>`,
+    ...groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
+  ].join('');
+  groupFilterSelect.value = currentGroupFilter;
+
+  const selectGroups = currentGroup && !groups.includes(currentGroup) ? [...groups, currentGroup] : groups;
+  currentGroupSelect.innerHTML = [
+    `<option value="">${UNGROUPED_LABEL}</option>`,
+    ...selectGroups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
+  ].join('');
+  currentGroupSelect.value = currentGroup;
+
+  const managedGroup = getManagedGroupValue();
+  manageGroupSelect.innerHTML = [
+    `<option value="">选择一个分组</option>`,
+    ...groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
+  ].join('');
+  manageGroupSelect.value = groups.includes(managedGroup) ? managedGroup : (groups[0] || '');
+}
+
+function updateGroupToolbarState() {
+  renderGroupSelectors();
+  const manageable = canManageGroup(currentDoc);
+  const currentGroup = getDocGroup(currentDoc);
+  const siblings = currentDoc ? getGroupSiblings(currentDoc) : [];
+  const index = siblings.findIndex(doc => currentDoc && doc.path === currentDoc.path);
+
+  groupInput.value = currentDoc ? currentGroup : '';
+  applyGroupBtn.disabled = !manageable;
+  clearGroupBtn.disabled = !manageable || !currentGroup;
+  moveDocUpBtn.disabled = !manageable || index <= 0;
+  moveDocDownBtn.disabled = !manageable || index === -1 || index >= siblings.length - 1;
+  const managedGroup = getManagedGroupValue();
+  const managedCount = managedGroup ? getGroupDocumentCount(managedGroup) : 0;
+  renameGroupBtn.disabled = !managedGroup;
+  deleteGroupBtn.disabled = !managedGroup || managedCount > 0;
+  if (managedGroup) {
+    if (!newGroupInput.value.trim()) {
+      newGroupInput.value = managedGroup;
+    }
+    groupManageHint.textContent = managedCount > 0
+      ? `分组“${managedGroup}”下还有 ${managedCount} 篇笔记，可重命名但不能删除。`
+      : `分组“${managedGroup}”当前为空，可以删除。`;
+  } else {
+    newGroupInput.value = '';
+    groupManageHint.textContent = '只有空分组可以删除；重命名会同步更新该分组下全部笔记。';
+  }
+
+  if (!currentDoc) {
+    groupMetaText.textContent = '当前没有打开文档。';
+    return;
+  }
+  if (!manageable) {
+    groupMetaText.textContent = '临时导入内容可先保存，再加入分组。';
+    return;
+  }
+  groupMetaText.textContent = `当前分组：${displayGroupName(currentGroup)}，组内位置：第 ${index + 1} / ${siblings.length} 篇。`;
 }
 
 function stripFrontMatter(md) {
@@ -356,18 +648,85 @@ async function fetchJson(url, options = {}) {
 
 function renderLibraryList() {
   docList.innerHTML = '';
-  library.forEach(doc => {
-    const card = document.createElement('button');
-    card.className = 'doc-card';
-    card.dataset.path = doc.path;
-    card.innerHTML = `
-      <div class="doc-title">${escapeHtml(doc.title || doc.slug)}</div>
-      <div class="doc-meta">${escapeHtml(doc.path)} · ${doc.type || 'doc'}</div>
-      <div class="doc-snippet">${escapeHtml((doc.sourceUrl || doc.remoteFallback || '本地文档').slice(0, 100))}</div>
-    `;
-    card.addEventListener('click', () => openDocument(doc.path));
-    docList.appendChild(card);
+  const filtered = getFilteredLibrary();
+  const visibleGroups = currentGroupFilter === ALL_GROUPS_VALUE
+    ? getAvailableGroups()
+    : [currentGroupFilter];
+  if (!filtered.length && currentGroupFilter === ALL_GROUPS_VALUE) {
+    docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
+    docCount.textContent = String(library.length);
+    return;
+  }
+  const groups = new Map();
+  filtered.forEach(doc => {
+    const key = getDocGroup(doc);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(doc);
   });
+  visibleGroups.forEach(group => {
+    const docs = groups.get(normalizeGroupName(group)) || [];
+    if (!docs.length && currentGroupFilter === ALL_GROUPS_VALUE) return;
+    const section = document.createElement('section');
+    section.className = 'doc-group-section';
+    section.dataset.group = group;
+    const collapsed = isGroupCollapsed(group);
+    section.innerHTML = `
+      <button class="doc-group-head" data-action="toggle-group" aria-expanded="${String(!collapsed)}">
+        <span class="doc-group-name">${escapeHtml(displayGroupName(group))}</span>
+        <span class="doc-group-meta">
+          <span class="doc-group-count">${docs.length}</span>
+          <span class="doc-group-chevron">${collapsed ? '展开' : '收起'}</span>
+        </span>
+      </button>
+      <div class="doc-group-body ${collapsed ? 'hidden' : ''}" data-group-body="${escapeHtml(group)}"></div>
+    `;
+    const header = section.querySelector('[data-action="toggle-group"]');
+    const body = section.querySelector('[data-group-body]');
+    header.addEventListener('click', () => toggleGroupCollapsed(group));
+    body.addEventListener('dragover', handleDragOver);
+    body.addEventListener('dragenter', handleDragEnter);
+    body.addEventListener('dragleave', handleDragLeave);
+    body.addEventListener('drop', evt => handleDropToGroup(evt, group));
+    docs.forEach(doc => {
+      const card = document.createElement('div');
+      card.className = 'doc-card';
+      card.dataset.path = doc.path;
+      if (canManageGroup(doc)) {
+        card.draggable = true;
+      }
+      const deletable = canDeleteDoc(doc);
+      card.innerHTML = `
+        <div class="doc-card-head">
+          <button class="doc-open-btn" data-action="open" data-path="${escapeHtml(doc.path)}">
+            <div class="doc-title">${escapeHtml(doc.title || doc.slug)}</div>
+            <div class="doc-meta">${escapeHtml(displayGroupName(doc.group))} · ${escapeHtml(doc.path)} · ${doc.type || 'doc'}</div>
+            <div class="doc-snippet">${escapeHtml((doc.sourceUrl || doc.remoteFallback || '本地文档').slice(0, 100))}</div>
+          </button>
+          ${deletable ? '<button class="doc-delete-btn" data-action="delete" title="删除这篇笔记" aria-label="删除这篇笔记">删除</button>' : ''}
+        </div>
+      `;
+      if (canManageGroup(doc)) {
+        card.addEventListener('dragstart', evt => handleDragStart(evt, doc));
+        card.addEventListener('dragend', handleDragEnd);
+        card.addEventListener('dragover', handleDragOver);
+        card.addEventListener('dragenter', handleDragEnter);
+        card.addEventListener('dragleave', handleDragLeave);
+        card.addEventListener('drop', evt => handleDropToGroup(evt, group, doc.path));
+      }
+      card.querySelector('[data-action="open"]').addEventListener('click', () => openDocument(doc.path));
+      if (deletable) {
+        card.querySelector('[data-action="delete"]').addEventListener('click', evt => {
+          evt.stopPropagation();
+          deleteDocument(doc);
+        });
+      }
+      body.appendChild(card);
+    });
+    docList.appendChild(section);
+  });
+  if (!docList.children.length) {
+    docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
+  }
   syncActiveCard();
   docCount.textContent = String(library.length);
 }
@@ -380,15 +739,20 @@ function syncActiveCard() {
 
 async function loadLibrary() {
   const data = await fetchJson(LIBRARY_URL);
-  library = data.documents || [];
+  libraryGroups = (data.groups || []).map((group, index) => ({
+    name: normalizeGroupName(group.name),
+    order: Number.isFinite(Number(group.order)) ? Number(group.order) : index + 1
+  })).filter(group => group.name);
+  library = sortDocuments(data.documents || []);
   docSelect.innerHTML = '';
   library.forEach(doc => {
     const option = document.createElement('option');
     option.value = doc.path;
-    option.textContent = `${doc.title} (${doc.path})`;
+    option.textContent = `[${displayGroupName(doc.group)}] ${doc.title} (${doc.path})`;
     docSelect.appendChild(option);
   });
   if (!library.length) throw new Error('library.json 中没有文档条目');
+  renderGroupSelectors();
   renderLibraryList();
 }
 
@@ -419,6 +783,11 @@ function findDocByHash() {
 async function openDocument(path, section = '') {
   const doc = library.find(item => item.path === path) || library[0];
   currentDoc = doc;
+  if (isGroupCollapsed(doc.group)) {
+    collapsedGroups[groupStorageKey(doc.group)] = false;
+    persistCollapsedGroups();
+    renderLibraryList();
+  }
   docSelect.value = doc.path;
   docTitleInput.value = doc.title || '';
   docSlugInput.value = doc.slug || slugify(doc.title || 'untitled');
@@ -431,6 +800,8 @@ async function openDocument(path, section = '') {
   permalink.textContent = `#doc=${doc.slug}`;
   history.replaceState(null, '', hashForDoc(doc, section));
   syncActiveCard();
+  updateDeleteButtonState();
+  updateGroupToolbarState();
   setStatus(`已打开：${doc.title}`);
   if (section) {
     setTimeout(() => {
@@ -456,7 +827,9 @@ async function saveCurrentDocument() {
     title,
     slug,
     markdown: body.startsWith('---') ? body : buildFrontMatter(title) + body,
-    type: currentDoc?.type === 'main' ? 'main' : 'import'
+    type: currentDoc?.type === 'main' ? 'main' : 'import',
+    group: getPendingGroupValue(),
+    order: Number.isFinite(Number(currentDoc?.order)) ? Number(currentDoc.order) : undefined
   };
   const result = await fetchJson('/api/save-document', {
     method: 'POST',
@@ -470,6 +843,159 @@ async function saveCurrentDocument() {
   setStatus(`已保存：${result.path}`);
 }
 
+async function updateDocumentMeta(path, meta) {
+  return fetchJson('/api/update-document-meta', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, ...meta })
+  });
+}
+
+async function createGroup(name) {
+  return fetchJson('/api/create-group', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+}
+
+async function renameGroup(oldName, newName) {
+  return fetchJson('/api/rename-group', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ oldName, newName })
+  });
+}
+
+async function deleteGroup(name) {
+  return fetchJson('/api/delete-group', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+}
+
+async function createManagedGroup() {
+  const name = normalizeGroupName(newGroupInput.value);
+  if (!name) {
+    alert('请先输入新分组名。');
+    return;
+  }
+  await createGroup(name);
+  newGroupInput.value = name;
+  await loadLibrary();
+  manageGroupSelect.value = name;
+  updateGroupToolbarState();
+  setStatus(`已新建分组：${name}`);
+}
+
+async function renameManagedGroup() {
+  const oldName = getManagedGroupValue();
+  const newName = normalizeGroupName(newGroupInput.value);
+  if (!oldName) {
+    alert('请先选择一个要重命名的分组。');
+    return;
+  }
+  if (!newName) {
+    alert('请输入新的分组名。');
+    return;
+  }
+  await renameGroup(oldName, newName);
+  if (currentGroupFilter === oldName) currentGroupFilter = newName;
+  if (currentDoc && getDocGroup(currentDoc) === oldName) currentDoc.group = newName;
+  newGroupInput.value = newName;
+  await loadLibrary();
+  manageGroupSelect.value = newName;
+  updateGroupToolbarState();
+  setStatus(`已重命名分组：${oldName} -> ${newName}`);
+}
+
+async function deleteManagedGroup() {
+  const name = getManagedGroupValue();
+  if (!name) {
+    alert('请先选择一个要删除的分组。');
+    return;
+  }
+  if (getGroupDocumentCount(name) > 0) {
+    alert('这个分组下还有笔记，不能删除。请先移动或删除这些笔记。');
+    return;
+  }
+  const ok = confirm(`确定删除空分组“${name}”吗？`);
+  if (!ok) return;
+  await deleteGroup(name);
+  if (currentGroupFilter === name) currentGroupFilter = ALL_GROUPS_VALUE;
+  newGroupInput.value = '';
+  await loadLibrary();
+  updateGroupToolbarState();
+  setStatus(`已删除空分组：${name}`);
+}
+
+async function applyCurrentGroup() {
+  if (!canManageGroup(currentDoc)) {
+    alert('请先把当前临时导入内容保存到站点，再进行分组。');
+    return;
+  }
+  const group = getPendingGroupValue();
+  if (currentGroupFilter !== ALL_GROUPS_VALUE) {
+    currentGroupFilter = group;
+  }
+  await updateDocumentMeta(currentDoc.path, { group });
+  await loadLibrary();
+  await openDocument(currentDoc.path);
+  setStatus(`已更新分组：${displayGroupName(group)}`);
+}
+
+async function moveCurrentDocument(direction) {
+  if (!canManageGroup(currentDoc)) {
+    alert('请先保存当前文档，再进行顺序调整。');
+    return;
+  }
+  const siblings = getGroupSiblings(currentDoc);
+  const currentIndex = siblings.findIndex(doc => doc.path === currentDoc.path);
+  const targetIndex = currentIndex + direction;
+  if (currentIndex === -1 || targetIndex < 0 || targetIndex >= siblings.length) {
+    setStatus(direction < 0 ? '当前已经是分组内第一篇' : '当前已经是分组内最后一篇');
+    return;
+  }
+  const targetDoc = siblings[targetIndex];
+  const currentOrder = Number.isFinite(Number(currentDoc.order)) ? Number(currentDoc.order) : currentIndex + 1;
+  const targetOrder = Number.isFinite(Number(targetDoc.order)) ? Number(targetDoc.order) : targetIndex + 1;
+  await updateDocumentMeta(currentDoc.path, { group: getDocGroup(currentDoc), order: targetOrder });
+  await updateDocumentMeta(targetDoc.path, { group: getDocGroup(targetDoc), order: currentOrder });
+  await loadLibrary();
+  await openDocument(currentDoc.path);
+  setStatus(direction < 0 ? '已上移当前文档' : '已下移当前文档');
+}
+
+async function deleteDocument(doc = currentDoc) {
+  if (!canDeleteDoc(doc)) {
+    alert('主笔记或未保存的临时导入内容不能删除。');
+    return;
+  }
+  const ok = confirm(`确定删除《${doc.title || doc.slug}》吗？\n\n将会删除：\n- 文档文件\n- library.json 中的索引\n- content/assets/${doc.slug}/ 资源目录（如果存在）`);
+  if (!ok) return;
+
+  setStatus(`正在删除：${doc.title || doc.slug}…`);
+  const wasCurrent = currentDoc && currentDoc.path === doc.path;
+  const nextDoc = wasCurrent ? library.find(item => item.path !== doc.path) : currentDoc;
+  await fetchJson('/api/delete-document', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: doc.path })
+  });
+  localStorage.removeItem(cacheKeyForPath(doc.path));
+  await loadLibrary();
+  await rebuildSearchIndex();
+  if (nextDoc) {
+    await openDocument(nextDoc.path);
+  } else {
+    renderGroupSelectors();
+    renderLibraryList();
+    updateGroupToolbarState();
+  }
+  setStatus(`已删除：${doc.title || doc.slug}`);
+}
+
 async function importUrl(mode) {
   const url = urlInput.value.trim();
   if (!url) {
@@ -481,12 +1007,19 @@ async function importUrl(mode) {
   docTitleInput.value = data.title || docTitleInput.value;
   docSlugInput.value = slugify(data.slug || data.title || 'imported');
   if (mode === 'preview') {
-    currentDoc = { path: '__adhoc__', title: data.title || '网址导入', slug: slugify(data.slug || data.title || 'imported'), type: 'adhoc' };
+    currentDoc = {
+      path: '__adhoc__',
+      title: data.title || '网址导入',
+      slug: slugify(data.slug || data.title || 'imported'),
+      type: 'adhoc',
+      group: getPendingGroupValue()
+    };
     originalContent = data.markdown;
     editor.value = data.markdown;
     render(!richMode);
     openEditor(true);
     docPath.textContent = 'adhoc / 未保存导入';
+    updateGroupToolbarState();
     setStatus(`已导入到编辑区：${data.title}`);
     return;
   }
@@ -499,7 +1032,8 @@ async function importUrl(mode) {
       slug: slugify(data.slug || data.title || 'imported'),
       markdown: data.markdown,
       type: 'import',
-      sourceUrl: url
+      sourceUrl: url,
+      group: getPendingGroupValue()
     })
   });
   await loadLibrary();
@@ -565,6 +1099,82 @@ docTitleInput.addEventListener('input', () => {
 
 docSelect.addEventListener('change', async () => openDocument(docSelect.value));
 searchInput.addEventListener('input', runSearch);
+groupFilterSelect.addEventListener('change', () => {
+  currentGroupFilter = groupFilterSelect.value;
+  renderLibraryList();
+});
+currentGroupSelect.addEventListener('change', () => {
+  groupInput.value = currentGroupSelect.value;
+});
+manageGroupSelect.addEventListener('change', () => {
+  newGroupInput.value = manageGroupSelect.value;
+  updateGroupToolbarState();
+});
+createGroupBtn.addEventListener('click', async () => {
+  try {
+    await createManagedGroup();
+  } catch (err) {
+    console.error(err);
+    setStatus(`新建分组失败：${err.message}`, true);
+    alert(`新建分组失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
+});
+renameGroupBtn.addEventListener('click', async () => {
+  try {
+    await renameManagedGroup();
+  } catch (err) {
+    console.error(err);
+    setStatus(`重命名分组失败：${err.message}`, true);
+    alert(`重命名分组失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
+});
+deleteGroupBtn.addEventListener('click', async () => {
+  try {
+    await deleteManagedGroup();
+  } catch (err) {
+    console.error(err);
+    setStatus(`删除分组失败：${err.message}`, true);
+    alert(`删除分组失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
+});
+applyGroupBtn.addEventListener('click', async () => {
+  try {
+    await applyCurrentGroup();
+  } catch (err) {
+    console.error(err);
+    setStatus(`分组更新失败：${err.message}`, true);
+    alert(`分组更新失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
+});
+clearGroupBtn.addEventListener('click', async () => {
+  groupInput.value = '';
+  currentGroupSelect.value = '';
+  try {
+    await applyCurrentGroup();
+  } catch (err) {
+    console.error(err);
+    setStatus(`分组更新失败：${err.message}`, true);
+    alert(`分组更新失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
+});
+moveDocUpBtn.addEventListener('click', async () => {
+  try {
+    await moveCurrentDocument(-1);
+  } catch (err) {
+    console.error(err);
+    setStatus(`顺序调整失败：${err.message}`, true);
+    alert(`顺序调整失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
+});
+moveDocDownBtn.addEventListener('click', async () => {
+  try {
+    await moveCurrentDocument(1);
+  } catch (err) {
+    console.error(err);
+    setStatus(`顺序调整失败：${err.message}`, true);
+    alert(`顺序调整失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
+});
 refreshLibraryBtn.addEventListener('click', async () => {
   await loadLibrary();
   await rebuildSearchIndex();
@@ -600,6 +1210,16 @@ downloadBtn.addEventListener('click', () => {
 clearLocalBtn.addEventListener('click', () => {
   Object.keys(localStorage).filter(key => key.startsWith(LOCAL_CACHE_PREFIX)).forEach(key => localStorage.removeItem(key));
   setStatus('浏览器缓存已清空');
+});
+
+deleteBtn.addEventListener('click', async () => {
+  try {
+    await deleteDocument();
+  } catch (err) {
+    console.error(err);
+    setStatus(`删除失败：${err.message}`, true);
+    alert(`删除失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+  }
 });
 
 importPreviewBtn.addEventListener('click', async () => {
@@ -702,6 +1322,8 @@ async function init() {
   await openDocument(doc.path, section);
   openEditor(false);
   document.body.classList.add('reading-mode');
+  updateDeleteButtonState();
+  updateGroupToolbarState();
 }
 
 init().catch(err => {
