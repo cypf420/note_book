@@ -13,6 +13,8 @@ const importPreviewBtn = document.getElementById('importPreviewBtn');
 const importSaveBtn = document.getElementById('importSaveBtn');
 const refreshLibraryBtn = document.getElementById('refreshLibraryBtn');
 const editToggleBtn = document.getElementById('editToggleBtn');
+const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+const toggleRichBtn = document.getElementById('toggleRichBtn');
 const closeEditorBtn = document.getElementById('closeEditorBtn');
 const toggleTocBtn = document.getElementById('toggleTocBtn');
 const docSelect = document.getElementById('docSelect');
@@ -32,12 +34,16 @@ const docPath = document.getElementById('docPath');
 const modeText = document.getElementById('modeText');
 const permalink = document.getElementById('permalink');
 const editorDrawer = document.getElementById('editorDrawer');
+const richToolbar = document.getElementById('richToolbar');
 
 let library = [];
 let searchIndex = [];
 let currentDoc = null;
 let originalContent = '';
 let tocVisible = true;
+let sidebarCollapsed = false;
+let richMode = false;
+const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -207,10 +213,10 @@ function buildTOC() {
   });
 }
 
-function render() {
+function render(renderAnchors = true) {
   const processed = preprocess(editor.value);
   preview.innerHTML = marked.parse(processed);
-  attachAnchorIds();
+  if (renderAnchors) attachAnchorIds();
   buildTOC();
   localStorage.setItem(currentCacheKey(), editor.value);
   if (window.MathJax?.typesetPromise) {
@@ -218,10 +224,49 @@ function render() {
   }
 }
 
+function htmlToMarkdown(html) {
+  if (turndownService) {
+    return turndownService.turndown(html || '').trim();
+  }
+  return editor.value;
+}
+
+function updateRichMode(enabled) {
+  richMode = enabled;
+  document.body.classList.toggle('rich-mode', enabled);
+  richToolbar.classList.toggle('hidden', !enabled);
+  richToolbar.setAttribute('aria-hidden', String(!enabled));
+  preview.setAttribute('contenteditable', enabled ? 'true' : 'false');
+  preview.setAttribute('spellcheck', enabled ? 'true' : 'false');
+  toggleRichBtn.textContent = enabled ? '切换到纯 Markdown' : '切换到所见即所得';
+  modeText.textContent = enabled ? '所见即所得模式（语雀风格）' : (editorDrawer.classList.contains('hidden') ? '阅读模式（源码隐藏）' : '编辑模式（源码显示）');
+  if (enabled) {
+    openEditor(false);
+    render(false);
+    preview.focus();
+  } else {
+    preview.removeAttribute('contenteditable');
+    render(!editorDrawer.classList.contains('hidden'));
+  }
+}
+
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  document.body.classList.toggle('sidebar-collapsed', sidebarCollapsed);
+  toggleSidebarBtn.textContent = sidebarCollapsed ? '展开边栏（退出专注）' : '收起边栏（专注模式）';
+  toggleSidebarBtn.setAttribute('aria-expanded', String(!sidebarCollapsed));
+  if (sidebarCollapsed) {
+    setStatus('已进入专注模式：边栏已收起，笔记占满屏幕');
+  } else {
+    setStatus('已展开边栏');
+  }
+}
+
 function openEditor(force = true) {
+  if (richMode && force) updateRichMode(false);
   editorDrawer.classList.toggle('hidden', !force);
   document.body.classList.toggle('reading-mode', !force);
-  modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
+  if (!richMode) modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
   editToggleBtn.textContent = force ? '返回阅读模式' : '编辑当前文档';
   editorDrawer.setAttribute('aria-hidden', String(!force));
   if (force) setTimeout(() => editor.focus(), 40);
@@ -313,7 +358,7 @@ async function openDocument(path, section = '') {
   const text = await resolveDocContent(doc);
   originalContent = text;
   editor.value = localStorage.getItem(currentCacheKey()) || text;
-  render();
+  render(!richMode);
   docPath.textContent = doc.path;
   permalink.href = hashForDoc(doc);
   permalink.textContent = `#doc=${doc.slug}`;
@@ -372,7 +417,7 @@ async function importUrl(mode) {
     currentDoc = { path: '__adhoc__', title: data.title || '网址导入', slug: slugify(data.slug || data.title || 'imported'), type: 'adhoc' };
     originalContent = data.markdown;
     editor.value = data.markdown;
-    render();
+    render(!richMode);
     openEditor(true);
     docPath.textContent = 'adhoc / 未保存导入';
     setStatus(`已导入到编辑区：${data.title}`);
@@ -444,7 +489,7 @@ editor.addEventListener('input', () => {
   if (currentDoc && currentDoc.type !== 'main') {
     docSlugInput.value = slugify(docSlugInput.value || currentDoc.slug || docTitleInput.value);
   }
-  render();
+  if (!richMode) render(true);
 });
 
 docTitleInput.addEventListener('input', () => {
@@ -462,7 +507,7 @@ refreshLibraryBtn.addEventListener('click', async () => {
 reloadBtn.addEventListener('click', () => {
   editor.value = originalContent;
   localStorage.removeItem(currentCacheKey());
-  render();
+  render(!richMode);
   setStatus('已恢复原始内容');
 });
 
@@ -512,10 +557,43 @@ importSaveBtn.addEventListener('click', async () => {
 
 editToggleBtn.addEventListener('click', () => openEditor(editorDrawer.classList.contains('hidden')));
 closeEditorBtn.addEventListener('click', () => openEditor(false));
+toggleSidebarBtn.addEventListener('click', toggleSidebar);
+toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
 
 toggleTocBtn.addEventListener('click', () => {
   tocVisible = !tocVisible;
   tocPanel.style.display = tocVisible ? '' : 'none';
+});
+
+
+
+preview.addEventListener('input', () => {
+  if (!richMode) return;
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
+});
+
+richToolbar.addEventListener('click', evt => {
+  const btn = evt.target.closest('button[data-cmd]');
+  if (!btn || !richMode) return;
+  const cmd = btn.dataset.cmd;
+  preview.focus();
+  if (cmd === 'h2') {
+    document.execCommand('formatBlock', false, 'h2');
+  } else if (cmd === 'blockquote') {
+    document.execCommand('formatBlock', false, 'blockquote');
+  } else if (cmd === 'code') {
+    document.execCommand('insertHTML', false, '<code>代码</code>');
+  } else if (cmd === 'createLink') {
+    const link = prompt('请输入链接地址：', 'https://');
+    if (link) document.execCommand('createLink', false, link);
+  } else {
+    document.execCommand(cmd, false, null);
+  }
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
 });
 
 window.addEventListener('hashchange', async () => {
@@ -542,6 +620,10 @@ document.addEventListener('keydown', async evt => {
   if (mod && evt.key.toLowerCase() === 'e') {
     evt.preventDefault();
     openEditor(editorDrawer.classList.contains('hidden'));
+  }
+  if (mod && evt.shiftKey && evt.key.toLowerCase() === 'e') {
+    evt.preventDefault();
+    updateRichMode(!richMode);
   }
 });
 

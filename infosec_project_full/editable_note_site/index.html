@@ -6,15 +6,18 @@
   <title>信息安全原理笔记工作台</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/turndown/dist/turndown.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <h1>信息安全原理笔记工作台</h1>
-      <p>默认阅读模式隐藏源码；点击“编辑当前文档”时，像 Typora 一样在同一页面进入编辑。</p>
+      <p>新增语雀风格所见即所得编辑 + 纽约时报灵感排版，支持可折叠边栏与专注全屏写作。</p>
     </div>
     <div class="top-actions">
+      <button id="toggleSidebarBtn">收起边栏（专注模式）</button>
+      <button id="toggleRichBtn">切换到所见即所得</button>
       <button id="editToggleBtn">编辑当前文档</button>
       <button id="reloadBtn">恢复原始内容</button>
       <button id="saveBtn">保存到站点</button>
@@ -24,7 +27,7 @@
   </header>
 
   <main class="app-grid">
-    <aside class="panel sidebar">
+    <aside id="sidebarPanel" class="panel sidebar">
       <div class="panel-title">站点导航</div>
 
       <div class="sidebar-section">
@@ -98,12 +101,22 @@
         </div>
       </div>
 
+      <div id="richToolbar" class="rich-toolbar hidden" aria-hidden="true">
+        <button data-cmd="bold">加粗</button>
+        <button data-cmd="italic">斜体</button>
+        <button data-cmd="h2">标题</button>
+        <button data-cmd="insertUnorderedList">列表</button>
+        <button data-cmd="blockquote">引用</button>
+        <button data-cmd="code">代码</button>
+        <button data-cmd="createLink">链接</button>
+      </div>
+
       <div class="doc-shell">
         <article id="preview" class="markdown-body"></article>
         <div id="editorDrawer" class="editor-drawer hidden" aria-hidden="true">
           <div class="editor-head">
             <div>
-              <strong>源码编辑</strong>
+              <strong>Markdown 源码编辑</strong>
               <span class="hint">Ctrl / Cmd + S 保存，Esc 退出编辑</span>
             </div>
             <button id="closeEditorBtn" class="ghost-btn">关闭编辑器</button>
@@ -126,7 +139,7 @@
   </main>
 
   <footer class="footer">
-    <p>已加入：全文搜索、自动目录、文档路由、Typora 风格阅读/编辑切换、GitHub Pages 工作流模板。</p>
+    <p>已加入：全文搜索、自动目录、文档路由、Typora 风格阅读/编辑切换、语雀风格所见即所得、纽约时报灵感视觉、可折叠专注模式。</p>
   </footer>
 
   <script src="app.js"></script>
