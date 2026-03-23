@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>信息安全原理笔记工作台</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>信息安全原理笔记工作台</h1>
+      <p>默认阅读模式隐藏源码；点击“编辑当前文档”时，像 Typora 一样在同一页面进入编辑。</p>
+    </div>
+    <div class="top-actions">
+      <button id="editToggleBtn">编辑当前文档</button>
+      <button id="reloadBtn">恢复原始内容</button>
+      <button id="saveBtn">保存到站点</button>
+      <button id="downloadBtn">导出 Markdown</button>
+      <button id="clearLocalBtn">清空缓存</button>
+    </div>
+  </header>
+
+  <main class="app-grid">
+    <aside class="panel sidebar">
+      <div class="panel-title">站点导航</div>
+
+      <div class="sidebar-section">
+        <label class="field-label" for="searchInput">全文搜索</label>
+        <input id="searchInput" type="search" placeholder="搜索标题、正文、关键字" />
+        <div id="searchMeta" class="hint">初始化中…</div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-head">
+          <span class="field-label">文档列表</span>
+          <button id="refreshLibraryBtn" class="ghost-btn">刷新</button>
+        </div>
+        <div id="docList" class="doc-list"></div>
+      </div>
+
+      <div class="sidebar-section">
+        <label class="field-label" for="docSelect">快速切换</label>
+        <select id="docSelect"></select>
+      </div>
+
+      <div class="sidebar-section">
+        <label class="field-label" for="docTitle">标题</label>
+        <input id="docTitle" type="text" placeholder="请输入文档标题" />
+      </div>
+
+      <div class="sidebar-section">
+        <label class="field-label" for="docSlug">Slug / 文件名</label>
+        <input id="docSlug" type="text" placeholder="例如 infosec-note" />
+      </div>
+
+      <div class="sidebar-section">
+        <label class="field-label" for="urlInput">导入网址</label>
+        <input id="urlInput" type="url" placeholder="https://example.com/article" />
+        <div class="mini-actions">
+          <button id="importPreviewBtn">一键导入到编辑区</button>
+          <button id="importSaveBtn">一键导入并保存到站点</button>
+        </div>
+        <p class="hint">这两个功能需要用 <code>python scripts/server.py</code> 启动。部署到 GitHub Pages 时可阅读与搜索，但不能直接抓网页和写文件。</p>
+      </div>
+
+      <div class="sidebar-section stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">文档数</div>
+          <div id="docCount" class="stat-value">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">搜索索引</div>
+          <div id="searchCount" class="stat-value">0</div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="status-card">
+          <div class="status-title">状态</div>
+          <div id="statusText">准备就绪</div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="panel workspace">
+      <div class="workspace-toolbar">
+        <div>
+          <div id="docPath" class="doc-path">未打开文档</div>
+          <div id="modeText" class="mode-text">阅读模式</div>
+        </div>
+        <div class="workspace-actions">
+          <a id="permalink" href="#" class="ghost-link">当前文档链接</a>
+          <button id="toggleTocBtn" class="ghost-btn">切换目录栏</button>
+        </div>
+      </div>
+
+      <div class="doc-shell">
+        <article id="preview" class="markdown-body"></article>
+        <div id="editorDrawer" class="editor-drawer hidden" aria-hidden="true">
+          <div class="editor-head">
+            <div>
+              <strong>源码编辑</strong>
+              <span class="hint">Ctrl / Cmd + S 保存，Esc 退出编辑</span>
+            </div>
+            <button id="closeEditorBtn" class="ghost-btn">关闭编辑器</button>
+          </div>
+          <textarea id="editor" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <aside id="tocPanel" class="panel toc-panel">
+      <div class="panel-title">当前目录</div>
+      <nav id="tocList" class="toc-list"></nav>
+      <div class="panel-title secondary-title">部署与使用</div>
+      <ul class="compact-list">
+        <li>本地启动：<code>python scripts/server.py</code></li>
+        <li>静态部署：GitHub Pages 只读模式</li>
+        <li>导入网页：需本地服务端</li>
+      </ul>
+    </aside>
+  </main>
+
+  <footer class="footer">
+    <p>已加入：全文搜索、自动目录、文档路由、Typora 风格阅读/编辑切换、GitHub Pages 工作流模板。</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

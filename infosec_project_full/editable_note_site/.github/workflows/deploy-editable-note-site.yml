@@ -1,0 +1,42 @@
+name: Deploy Editable Note Site
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'editable_note_site/**'
+      - '.github/workflows/deploy-editable-note-site.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: editable-note-site-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p dist
+          cp -r editable_note_site/* dist/
+          touch dist/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

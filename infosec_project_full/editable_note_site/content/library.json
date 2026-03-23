@@ -1,0 +1,18 @@
+{
+  "documents": [
+    {
+      "title": "信息安全原理主笔记",
+      "slug": "note",
+      "path": "./content/note.md",
+      "type": "main",
+      "remoteFallback": "https://raw.githubusercontent.com/sqc-cyh/sqc-cyh.github.io/main/docs/LessonsNotes/D2CX_Xinanyuan/note.md"
+    },
+    {
+      "title": "Note - 时清川的个人主页",
+      "slug": "note-时清川的个人主页",
+      "path": "./content/imports/note-时清川的个人主页.md",
+      "type": "import",
+      "sourceUrl": "https://sh17c.top/LessonsNotes/D2CX_Xinanyuan/note/"
+    }
+  ]
+}
