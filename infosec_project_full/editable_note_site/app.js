@@ -982,13 +982,24 @@ function applyBlockMarkdownShortcut() {
     return replaceNodePreservingCaret(block, heading, heading, 'end');
   }
 
-  match = text.match(/^>\s+(.+)$/);
+  match = text.match(/^(([>》]\s*)+)(.+)$/);
   if (match) {
-    const quote = document.createElement('blockquote');
-    const paragraph = document.createElement('p');
-    paragraph.textContent = match[1];
-    quote.appendChild(paragraph);
-    return replaceNodePreservingCaret(block, quote, paragraph, 'end');
+    const depth = Math.min(6, (match[1].match(/[>》]/g) || []).length);
+    const content = match[3].trim();
+    if (content) {
+      let outerQuote = null;
+      let currentQuote = null;
+      for (let i = 0; i < depth; i++) {
+        const quote = document.createElement('blockquote');
+        if (!outerQuote) outerQuote = quote;
+        if (currentQuote) currentQuote.appendChild(quote);
+        currentQuote = quote;
+      }
+      const paragraph = document.createElement('p');
+      paragraph.textContent = content;
+      currentQuote.appendChild(paragraph);
+      return replaceNodePreservingCaret(block, outerQuote, paragraph, 'end');
+    }
   }
 
   match = text.match(/^[-*+]\s+\[( |x|X)\]\s+(.+)$/);

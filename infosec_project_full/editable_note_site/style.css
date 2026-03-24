@@ -550,11 +550,20 @@ body.is-resizing * {
 }
 
 .markdown-body blockquote {
-  margin: 20px 0;
-  padding: 8px 18px;
-  border-left: 3px solid #b9a989;
-  color: #4c4538;
-  background: #f8f3ea;
+  margin: 12px 0;
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid #d6d2ca;
+  color: #55514a;
+  background: #fff;
+}
+
+.markdown-body blockquote p {
+  margin: .32em 0;
+}
+
+.markdown-body blockquote blockquote {
+  margin-top: 8px;
+  margin-bottom: 8px;
 }
 
 .markdown-body h1:hover .anchor-link,
@@ -941,6 +950,12 @@ body.theme-dark kbd {
 
 body.theme-dark .status-ok { color: #89c8a2 !important; }
 body.theme-dark .status-error { color: #ff9c9c !important; }
+
+body.theme-dark .markdown-body blockquote {
+  background: transparent;
+  border-left-color: #4f5b6d;
+  color: #c2cad6;
+}
 
 @media (max-width: 1280px) {
   .tree-drawer-grid {
