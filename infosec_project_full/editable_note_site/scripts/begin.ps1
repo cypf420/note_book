@@ -67,14 +67,14 @@ function Get-PythonRuntime() {
 
 function Test-Dependencies($runtime) {
     if ($runtime.Mode -eq "conda") {
-        cmd /c "conda run -n $envName python -c ""import requests, bs4, markdownify"" >nul 2>nul"
+        cmd /c "conda run -n $envName python -c ""import requests, bs4, markdownify, ftfy, playwright"" >nul 2>nul"
         return $LASTEXITCODE -eq 0
     }
     if ($runtime.Exec -eq "py") {
-        cmd /c "py -3 -c ""import requests, bs4, markdownify"" >nul 2>nul"
+        cmd /c "py -3 -c ""import requests, bs4, markdownify, ftfy, playwright"" >nul 2>nul"
         return $LASTEXITCODE -eq 0
     }
-    cmd /c "python -c ""import requests, bs4, markdownify"" >nul 2>nul"
+    cmd /c "python -c ""import requests, bs4, markdownify, ftfy, playwright"" >nul 2>nul"
     return $LASTEXITCODE -eq 0
 }
 

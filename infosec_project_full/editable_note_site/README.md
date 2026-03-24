@@ -95,6 +95,35 @@ set AUTO_OPEN_BROWSER=1
 python scripts/server.py
 ```
 
+### 4.3 本地抓取文件转 Markdown
+
+如果你已经把网页抓成了本地文件，也可以直接做一次“所见内容 -> Markdown”的转换：
+
+```bash
+python scripts/render_to_markdown.py path/to/page.html -o content/imports/page.md
+```
+
+说明：
+
+- 支持 `html`、`markdown`、`text` 三类输入，默认自动识别
+- 会优先修复常见乱码，例如 UTF-8 被错误按 Latin-1 / CP1252 解码的情况
+- 命令行里可以用 `--type html|markdown|text` 强制指定输入类型
+- 传入 `-` 时会从标准输入读取内容
+- 如果输入的是 URL，会优先尝试使用真实浏览器渲染页面，再提取最终 DOM 转 Markdown
+- 网页正文中的链接会尽量按原网页地址保存为可点击链接，避免导入后跳到本地站点的相对路径
+
+例如：
+
+```bash
+python scripts/render_to_markdown.py https://example.com/article --render browser -o content/imports/article.md
+```
+
+浏览器渲染说明：
+
+- Windows 下会优先复用本机已安装的 Edge，其次尝试 Chrome
+- 如果系统里没有可用的 Chromium 内核浏览器，Playwright 可能需要额外安装浏览器运行时
+- 站内 `导入网址` 接口现在也会优先使用浏览器渲染 HTML 页面，因此更接近你在浏览器里实际看到的内容
+
 ## 5. 启动后的访问地址
 
 默认是：

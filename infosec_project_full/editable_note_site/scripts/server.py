@@ -12,7 +12,8 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
-from markdownify import markdownify as md
+
+import import_pipeline as pipeline
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTENT_DIR = ROOT / 'content'
@@ -520,48 +521,20 @@ def _safe_image_ext(image_url: str, content_type: str = '') -> str:
 def extract_main_html(url: str, html_text: str | None = None) -> tuple[str, str]:
     if html_text is None:
         response = fetch_url_text(url)
-        html_text = response.text
-    soup = BeautifulSoup(html_text, 'html.parser')
-    meta_title = soup.find('meta', attrs={'property': 'og:title'})
-    page_title = (meta_title.get('content') or '').strip() if meta_title else ''
-    title = page_title or (soup.title.string.strip() if soup.title and soup.title.string else urlparse(url).netloc)
-    for tag in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
-        tag.decompose()
-    container = _pick_content_container(soup)
-    for node in container.find_all(['nav', 'footer', 'header', 'aside', 'form']):
-        node.decompose()
-    for node in container.select('.advertisement, .ads, .share, .social, .comment, .comments, .recommend, .related'):
-        node.decompose()
-    return title, str(container)
+        html_text = pipeline.decode_response_text(response)
+    return pipeline.extract_main_html(url, html_text)
 
 
 def extract_title_from_markdown(markdown: str, fallback: str) -> str:
-    for line in markdown.splitlines():
-        text = line.strip()
-        if text.startswith('#'):
-            return re.sub(r'^#+\s*', '', text).strip() or fallback
-    return fallback
+    return pipeline.extract_title_from_markdown(markdown, fallback)
 
 
 def is_markdown_like(url: str, content_type: str, text: str) -> bool:
-    if urlparse(url).path.lower().endswith(('.md', '.markdown', '.mdown')):
-        return True
-    content_type = (content_type or '').lower()
-    if 'markdown' in content_type:
-        return True
-    sample = text[:3000]
-    has_html_structure = bool(re.search(r'<(html|head|body|article|main|div|section)\b', sample, re.I))
-    has_md_structure = bool(re.search(r'(^|\n)\s{0,3}(#{1,6}\s+|[-*+]\s+|\d+\.\s+|```)', sample))
-    return has_md_structure and not has_html_structure
+    return pipeline.is_markdown_like(url, content_type, text)
 
 
 def is_plain_text_like(content_type: str, text: str) -> bool:
-    content_type = (content_type or '').lower()
-    if 'text/plain' not in content_type:
-        return False
-    sample = text[:3000]
-    has_html_structure = bool(re.search(r'<(html|head|body|article|main|div|section)\b', sample, re.I))
-    return not has_html_structure
+    return pipeline.is_plain_text_like(content_type, text)
 
 
 def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[str, dict]:
@@ -600,51 +573,74 @@ def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[st
     return str(soup), {'total': total, 'downloaded': downloaded, 'failed': failed}
 
 
-def html_to_markdown(html: str, title: str) -> str:
-    body = md(html, heading_style='ATX')
-    body = re.sub(r'\n{3,}', '\n\n', body).strip()
-    return f'---\ntitle: {title}\n---\n\n{body}\n'
+def html_to_markdown(html: str, title: str, base_url: str = '') -> str:
+    return pipeline.html_to_markdown(html, title, base_url)
 
 
 def normalize_markdown(markdown: str, title: str) -> str:
-    body = markdown.strip()
-    if body.startswith('---'):
-        return body + '\n'
-    return f'---\ntitle: {title}\n---\n\n{body}\n'
+    return pipeline.normalize_markdown(markdown, title)
 
 
 def plain_text_to_markdown(text: str, title: str) -> str:
-    body = re.sub(r'\n{3,}', '\n\n', text.strip())
-    return f'---\ntitle: {title}\n---\n\n{body or "(empty)"}\n'
+    return pipeline.plain_text_to_markdown(text, title)
 
 
 def import_url_to_markdown(url: str) -> tuple[str, str, str, dict]:
     safe_url = validate_import_url(url)
-    response = fetch_url_text(safe_url)
-    content_type = response.headers.get('Content-Type', '')
-    text = response.text
-    if urlparse(safe_url).path.lower().endswith('.txt') and is_plain_text_like(content_type, text):
+    response = None
+    content_type = ''
+    text = ''
+    response_error = ''
+    try:
+        response = fetch_url_text(safe_url)
+        content_type = response.headers.get('Content-Type', '')
+        text = pipeline.decode_response_text(response)
+    except Exception as exc:
+        response_error = str(exc)
+
+    if response is not None and urlparse(safe_url).path.lower().endswith('.txt') and is_plain_text_like(content_type, text):
         fallback = Path(urlparse(safe_url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(safe_url).netloc
         first_line = next((line.strip() for line in text.splitlines() if line.strip()), fallback)
         title = first_line[:80] if first_line else fallback
         slug = slugify(title)
         return title, slug, plain_text_to_markdown(text, title), {'detectedType': 'text', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
-    if is_markdown_like(safe_url, content_type, text):
+    if response is not None and is_markdown_like(safe_url, content_type, text):
         fallback = Path(urlparse(safe_url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(safe_url).netloc
         title = extract_title_from_markdown(text, fallback)
         slug = slugify(title)
         return title, slug, normalize_markdown(text, title), {'detectedType': 'markdown', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
-    if is_plain_text_like(content_type, text):
+    if response is not None and is_plain_text_like(content_type, text):
         fallback = Path(urlparse(safe_url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(safe_url).netloc
         first_line = next((line.strip() for line in text.splitlines() if line.strip()), fallback)
         title = first_line[:80] if first_line else fallback
         slug = slugify(title)
         return title, slug, plain_text_to_markdown(text, title), {'detectedType': 'text', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
-    title, html = extract_main_html(safe_url, text)
+    render_mode = 'http'
+    page_url = safe_url
+    page_text = text
+    browser_meta = {}
+    if pipeline.browser_render_available():
+        try:
+            rendered = pipeline.render_url_in_browser(safe_url)
+            page_url = rendered.get('url') or safe_url
+            page_text = rendered.get('html') or text
+            render_mode = f'browser:{rendered.get("browser", "chromium")}'
+            browser_meta = {
+                'browser': rendered.get('browser', ''),
+                'finalUrl': page_url,
+                'visibleTextLength': len(rendered.get('visible_text', '')),
+            }
+        except Exception as exc:
+            browser_meta = {'browserError': str(exc)}
+    if not page_text:
+        raise RuntimeError(browser_meta.get('browserError') or response_error or '无法获取网页内容')
+    title, html = extract_main_html(page_url, page_text)
     slug = slugify(title)
-    html, image_stats = download_and_rewrite_images(html, safe_url, slug)
-    markdown = html_to_markdown(html, title)
-    return title, slug, markdown, {'detectedType': 'html', 'images': image_stats}
+    html, image_stats = download_and_rewrite_images(html, page_url, slug)
+    markdown = html_to_markdown(html, title, page_url)
+    meta = {'detectedType': 'html', 'images': image_stats, 'renderMode': render_mode}
+    meta.update(browser_meta)
+    return title, slug, markdown, meta
 
 
 def truthy_env(name: str, default: bool = False) -> bool:

@@ -16,6 +16,15 @@
       "type": "import",
       "group": "帮助",
       "order": 1
+    },
+    {
+      "title": "面向对象程序设计 - WintermelonC Docs",
+      "slug": "面向对象程序设计-wintermelonc-docs",
+      "path": "./content/imports/面向对象程序设计-wintermelonc-docs.md",
+      "type": "import",
+      "group": "帮助",
+      "order": 2,
+      "sourceUrl": "https://wintermelonc.github.io/WintermelonC_Docs/zju/basic_courses/OOP/#%E6%9C%9F%E6%9C%AB%E8%80%83%E8%AF%95"
     }
   ],
   "groups": [
