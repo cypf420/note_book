@@ -20,6 +20,10 @@ IMPORT_DIR = CONTENT_DIR / 'imports'
 ASSET_DIR = CONTENT_DIR / 'assets'
 LIBRARY_FILE = CONTENT_DIR / 'library.json'
 HEADERS = {'User-Agent': 'EditableNoteSite/3.0 (+https://127.0.0.1)'}
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+MAX_IMPORT_IMAGES = 80
+ALLOWED_IMG_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif'}
 
 
 def slugify(text: str) -> str:
@@ -65,6 +69,28 @@ def normalize_group_name(group: str | None) -> str:
     return (group or '').strip()
 
 
+def validate_group_name(group: str | None, allow_empty: bool = True) -> str:
+    normalized = normalize_group_name(group)
+    if not normalized:
+        if allow_empty:
+            return ''
+        raise ValueError('分组名不能为空')
+    if len(normalized) > 50:
+        raise ValueError('分组名不能超过 50 个字符')
+    if re.search(r'[\\/:*?"<>|]', normalized):
+        raise ValueError('分组名不能包含 \\ / : * ? " < > |')
+    return normalized
+
+
+def validate_doc_path(path: str) -> str:
+    normalized = path.lstrip('./').replace('\\', '/')
+    if normalized == 'content/note.md':
+        return normalized
+    if normalized.startswith('content/imports/') and normalized.endswith('.md') and '..' not in normalized:
+        return normalized
+    raise ValueError('文档路径不被允许')
+
+
 def normalize_library_data(data: dict) -> dict:
     docs = data.setdefault('documents', [])
     groups = data.setdefault('groups', [])
@@ -73,10 +99,10 @@ def normalize_library_data(data: dict) -> dict:
     seen: set[str] = set()
     for index, group in enumerate(groups, start=1):
         if isinstance(group, dict):
-            name = normalize_group_name(group.get('name'))
+            name = validate_group_name(group.get('name'))
             order = group.get('order', index)
         else:
-            name = normalize_group_name(str(group))
+            name = validate_group_name(str(group))
             order = index
         if not name or name in seen:
             continue
@@ -88,7 +114,7 @@ def normalize_library_data(data: dict) -> dict:
         normalized_groups.append({'name': name, 'order': order_value})
 
     for doc in docs:
-        group = normalize_group_name(doc.get('group'))
+        group = validate_group_name(doc.get('group'))
         doc['group'] = group
         try:
             doc['order'] = int(doc.get('order', next_order_value(docs, group, exclude_path=doc.get('path'))))
@@ -107,7 +133,7 @@ def normalize_library_data(data: dict) -> dict:
 
 
 def ensure_group_exists(data: dict, group: str) -> None:
-    normalized = normalize_group_name(group)
+    normalized = validate_group_name(group)
     if not normalized:
         return
     groups = data.setdefault('groups', [])
@@ -117,38 +143,32 @@ def ensure_group_exists(data: dict, group: str) -> None:
 
 
 def find_group_entry(data: dict, group: str) -> tuple[list[dict], int]:
-    normalized = normalize_group_name(group)
-    if not normalized:
-        raise ValueError('group name cannot be empty')
+    normalized = validate_group_name(group, allow_empty=False)
     groups = data.setdefault('groups', [])
     index = next((i for i, item in enumerate(groups) if normalize_group_name(item.get('name')) == normalized), None)
     if index is None:
-        raise FileNotFoundError(f'group not found: {normalized}')
+        raise FileNotFoundError(f'分组不存在：{normalized}')
     return groups, index
 
 
 def create_group(group: str) -> dict:
-    normalized = normalize_group_name(group)
-    if not normalized:
-        raise ValueError('group name cannot be empty')
+    normalized = validate_group_name(group, allow_empty=False)
     data = load_library()
     groups = data.setdefault('groups', [])
     if any(normalize_group_name(item.get('name')) == normalized for item in groups):
-        raise ValueError('group already exists')
+        raise ValueError('分组已存在')
     groups.append({'name': normalized, 'order': len(groups) + 1})
     save_library(data)
     return {'name': normalized}
 
 
 def rename_group(old_group: str, new_group: str) -> dict:
-    old_name = normalize_group_name(old_group)
-    new_name = normalize_group_name(new_group)
-    if not old_name or not new_name:
-        raise ValueError('group name cannot be empty')
+    old_name = validate_group_name(old_group, allow_empty=False)
+    new_name = validate_group_name(new_group, allow_empty=False)
     data = load_library()
     groups, index = find_group_entry(data, old_name)
     if old_name != new_name and any(normalize_group_name(item.get('name')) == new_name for item in groups):
-        raise ValueError('target group already exists')
+        raise ValueError('目标分组已存在')
     groups[index]['name'] = new_name
     for doc in data.setdefault('documents', []):
         if normalize_group_name(doc.get('group')) == old_name:
@@ -158,12 +178,10 @@ def rename_group(old_group: str, new_group: str) -> dict:
 
 
 def delete_group(group: str) -> dict:
-    normalized = normalize_group_name(group)
-    if not normalized:
-        raise ValueError('group name cannot be empty')
+    normalized = validate_group_name(group, allow_empty=False)
     data = load_library()
     if any(normalize_group_name(doc.get('group')) == normalized for doc in data.setdefault('documents', [])):
-        raise ValueError('group is not empty')
+        raise ValueError('分组内还有笔记，不能删除')
     groups, index = find_group_entry(data, normalized)
     groups.pop(index)
     save_library(data)
@@ -204,11 +222,12 @@ def update_library_entry(
 ) -> None:
     data = load_library()
     docs = data.setdefault('documents', [])
-    ensure_group_exists(data, target_group)
-    normalized = f'./{path}' if not path.startswith('./') else path
+    safe_path = validate_doc_path(path)
+    normalized = f'./{safe_path}' if not safe_path.startswith('./') else safe_path
     found = next((doc for doc in docs if doc['path'] == normalized), None)
     current_group = normalize_group_name(found.get('group')) if found else ''
-    target_group = current_group if group is None else normalize_group_name(group)
+    target_group = current_group if group is None else validate_group_name(group)
+    ensure_group_exists(data, target_group)
     target_order = order
     if target_order is None:
         if found and target_group == current_group and found.get('order') is not None:
@@ -240,14 +259,15 @@ def update_library_entry(
 
 def find_library_entry(path: str) -> tuple[dict, list[dict], int]:
     data = load_library()
-    normalized = f'./{path}' if not path.startswith('./') else path
+    safe_path = validate_doc_path(path)
+    normalized = f'./{safe_path}' if not safe_path.startswith('./') else safe_path
     docs = data.setdefault('documents', [])
     index = next((i for i, doc in enumerate(docs) if doc.get('path') == normalized), None)
     if index is None:
-        raise FileNotFoundError(f'document not found in library: {normalized}')
+        raise FileNotFoundError(f'文档不存在：{normalized}')
     entry = docs[index]
     if entry.get('type') == 'main':
-        raise ValueError('main document cannot be deleted')
+        raise ValueError('主笔记不能删除')
     return data, docs, index
 
 
@@ -261,7 +281,7 @@ def delete_library_entry(path: str) -> dict:
 def update_document_meta(path: str, group: str | None = None, order: int | None = None) -> dict:
     data, docs, index = find_library_entry(path)
     entry = docs[index]
-    target_group = normalize_group_name(group if group is not None else entry.get('group'))
+    target_group = validate_group_name(group if group is not None else entry.get('group'))
     if order is None:
         if target_group == normalize_group_name(entry.get('group')):
             try:
@@ -298,55 +318,214 @@ def delete_document_file(entry: dict) -> dict:
     }
 
 
-def extract_main_html(url: str) -> tuple[str, str]:
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    title = soup.title.string.strip() if soup.title and soup.title.string else urlparse(url).netloc
-    for tag in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
-        tag.decompose()
-    candidates = [
+def validate_import_url(url: str) -> str:
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in {'http', 'https'}:
+        raise ValueError('只允许导入 http 或 https 网页')
+    return url.strip()
+
+
+def fetch_url_text(url: str) -> requests.Response:
+    response = SESSION.get(url, timeout=30)
+    response.raise_for_status()
+    if not response.encoding:
+        response.encoding = response.apparent_encoding or 'utf-8'
+    return response
+
+
+def _candidate_score(node) -> float:
+    if node is None:
+        return -1.0
+    text = node.get_text(' ', strip=True)
+    text_length = len(text)
+    score = float(text_length)
+    score += len(node.find_all('p')) * 45
+    score += len(node.find_all(['h1', 'h2', 'h3'])) * 18
+    score += len(node.find_all('li')) * 4
+    score += len(node.find_all('img')) * 6
+    if node.name in {'article', 'main'}:
+        score += 120
+    elif node.name == 'section':
+        score += 30
+    elif node.name in {'nav', 'footer', 'aside', 'header', 'form'}:
+        score -= 320
+    attrs = f"{' '.join(node.get('class', []))} {node.get('id', '')}".lower()
+    if re.search(r'comment|sidebar|footer|header|nav|menu|share|social|recommend|related|ads?|banner', attrs):
+        score -= 240
+    return score
+
+
+def _pick_content_container(soup: BeautifulSoup):
+    direct_candidates = [
         soup.find('article'),
         soup.find('main'),
+        soup.select_one('[role="main"]'),
         soup.select_one('.markdown-body'),
+        soup.select_one('.post-content'),
+        soup.select_one('.article-content'),
         soup.select_one('.content'),
         soup.select_one('#content'),
+        soup.select_one('#main-content'),
         soup.body,
     ]
-    container = next((c for c in candidates if c is not None), soup)
-    for node in container.find_all(['nav', 'footer', 'header', 'aside']):
+    direct = [node for node in direct_candidates if node is not None]
+    if direct:
+        best_direct = max(direct, key=_candidate_score)
+        if _candidate_score(best_direct) > 120:
+            return best_direct
+    candidates = soup.find_all(['article', 'main', 'section', 'div'])
+    best = max(candidates, key=_candidate_score, default=None)
+    return best if best is not None else soup.body or soup
+
+
+def _safe_image_ext(image_url: str, content_type: str = '') -> str:
+    suffix = Path(urlparse(image_url).path).suffix.lower()
+    if suffix in ALLOWED_IMG_EXTS:
+        return suffix
+    content_type = content_type.lower()
+    if 'svg' in content_type:
+        return '.svg'
+    if 'jpeg' in content_type or 'jpg' in content_type:
+        return '.jpg'
+    if 'gif' in content_type:
+        return '.gif'
+    if 'webp' in content_type:
+        return '.webp'
+    if 'bmp' in content_type:
+        return '.bmp'
+    if 'avif' in content_type:
+        return '.avif'
+    return '.png'
+
+
+def extract_main_html(url: str, html_text: str | None = None) -> tuple[str, str]:
+    if html_text is None:
+        response = fetch_url_text(url)
+        html_text = response.text
+    soup = BeautifulSoup(html_text, 'html.parser')
+    meta_title = soup.find('meta', attrs={'property': 'og:title'})
+    page_title = (meta_title.get('content') or '').strip() if meta_title else ''
+    title = page_title or (soup.title.string.strip() if soup.title and soup.title.string else urlparse(url).netloc)
+    for tag in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
+        tag.decompose()
+    container = _pick_content_container(soup)
+    for node in container.find_all(['nav', 'footer', 'header', 'aside', 'form']):
+        node.decompose()
+    for node in container.select('.advertisement, .ads, .share, .social, .comment, .comments, .recommend, .related'):
         node.decompose()
     return title, str(container)
 
 
-def download_and_rewrite_images(html: str, page_url: str, slug: str) -> str:
+def extract_title_from_markdown(markdown: str, fallback: str) -> str:
+    for line in markdown.splitlines():
+        text = line.strip()
+        if text.startswith('#'):
+            return re.sub(r'^#+\s*', '', text).strip() or fallback
+    return fallback
+
+
+def is_markdown_like(url: str, content_type: str, text: str) -> bool:
+    if urlparse(url).path.lower().endswith(('.md', '.markdown', '.mdown')):
+        return True
+    content_type = (content_type or '').lower()
+    if 'markdown' in content_type:
+        return True
+    sample = text[:3000]
+    has_html_structure = bool(re.search(r'<(html|head|body|article|main|div|section)\b', sample, re.I))
+    has_md_structure = bool(re.search(r'(^|\n)\s{0,3}(#{1,6}\s+|[-*+]\s+|\d+\.\s+|```)', sample))
+    return has_md_structure and not has_html_structure
+
+
+def is_plain_text_like(content_type: str, text: str) -> bool:
+    content_type = (content_type or '').lower()
+    if 'text/plain' not in content_type:
+        return False
+    sample = text[:3000]
+    has_html_structure = bool(re.search(r'<(html|head|body|article|main|div|section)\b', sample, re.I))
+    return not has_html_structure
+
+
+def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[str, dict]:
     soup = BeautifulSoup(html, 'html.parser')
-    target_dir = ASSET_DIR / slug
-    target_dir.mkdir(parents=True, exist_ok=True)
-    for index, img in enumerate(soup.find_all('img'), start=1):
-        src = img.get('src')
+    images = soup.find_all('img')
+    total = len(images)
+    downloaded = 0
+    failed = max(0, total - MAX_IMPORT_IMAGES)
+    if total:
+        target_dir = ASSET_DIR / slug
+        target_dir.mkdir(parents=True, exist_ok=True)
+    for index, img in enumerate(images[:MAX_IMPORT_IMAGES], start=1):
+        src = (img.get('src') or img.get('data-src') or img.get('data-original') or '').strip()
         if not src:
+            failed += 1
             continue
         img_url = urljoin(page_url, src)
-        parsed = urlparse(img_url)
-        ext = Path(parsed.path).suffix or '.png'
-        filename = f'image-{index}{ext}'
-        local_path = target_dir / filename
         try:
-            r = requests.get(img_url, headers=HEADERS, timeout=30, stream=True)
-            r.raise_for_status()
-            with open(local_path, 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
+            response = SESSION.get(img_url, timeout=30, stream=True)
+            response.raise_for_status()
+            content_type = (response.headers.get('Content-Type') or '').lower()
+            if content_type and 'image' not in content_type:
+                failed += 1
+                img['src'] = img_url
+                continue
+            ext = _safe_image_ext(img_url, content_type)
+            filename = f'image-{index}{ext}'
+            local_path = ASSET_DIR / slug / filename
+            with open(local_path, 'wb') as file_obj:
+                shutil.copyfileobj(response.raw, file_obj)
             img['src'] = f'./content/assets/{slug}/{filename}'
+            downloaded += 1
         except Exception:
             img['src'] = img_url
-    return str(soup)
+            failed += 1
+    return str(soup), {'total': total, 'downloaded': downloaded, 'failed': failed}
 
 
 def html_to_markdown(html: str, title: str) -> str:
     body = md(html, heading_style='ATX')
     body = re.sub(r'\n{3,}', '\n\n', body).strip()
     return f'---\ntitle: {title}\n---\n\n{body}\n'
+
+
+def normalize_markdown(markdown: str, title: str) -> str:
+    body = markdown.strip()
+    if body.startswith('---'):
+        return body + '\n'
+    return f'---\ntitle: {title}\n---\n\n{body}\n'
+
+
+def plain_text_to_markdown(text: str, title: str) -> str:
+    body = re.sub(r'\n{3,}', '\n\n', text.strip())
+    return f'---\ntitle: {title}\n---\n\n{body or "(empty)"}\n'
+
+
+def import_url_to_markdown(url: str) -> tuple[str, str, str, dict]:
+    safe_url = validate_import_url(url)
+    response = fetch_url_text(safe_url)
+    content_type = response.headers.get('Content-Type', '')
+    text = response.text
+    if urlparse(safe_url).path.lower().endswith('.txt') and is_plain_text_like(content_type, text):
+        fallback = Path(urlparse(safe_url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(safe_url).netloc
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), fallback)
+        title = first_line[:80] if first_line else fallback
+        slug = slugify(title)
+        return title, slug, plain_text_to_markdown(text, title), {'detectedType': 'text', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
+    if is_markdown_like(safe_url, content_type, text):
+        fallback = Path(urlparse(safe_url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(safe_url).netloc
+        title = extract_title_from_markdown(text, fallback)
+        slug = slugify(title)
+        return title, slug, normalize_markdown(text, title), {'detectedType': 'markdown', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
+    if is_plain_text_like(content_type, text):
+        fallback = Path(urlparse(safe_url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(safe_url).netloc
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), fallback)
+        title = first_line[:80] if first_line else fallback
+        slug = slugify(title)
+        return title, slug, plain_text_to_markdown(text, title), {'detectedType': 'text', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
+    title, html = extract_main_html(safe_url, text)
+    slug = slugify(title)
+    html, image_stats = download_and_rewrite_images(html, safe_url, slug)
+    markdown = html_to_markdown(html, title)
+    return title, slug, markdown, {'detectedType': 'html', 'images': image_stats}
 
 
 def truthy_env(name: str, default: bool = False) -> bool:
@@ -401,12 +580,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({'error': 'missing url'}, 400)
             try:
                 ensure_dirs()
-                title, html = extract_main_html(url)
-                slug = slugify(title)
-                html = download_and_rewrite_images(html, url, slug)
-                markdown = html_to_markdown(html, title)
-                print(f'[import] {url} -> assets/{slug}/')
-                return self._send_json({'title': title, 'slug': slug, 'markdown': markdown})
+                title, slug, markdown, meta = import_url_to_markdown(url)
+                print(f'[import] {url} -> type={meta.get("detectedType")} assets={meta.get("images", {}).get("downloaded", 0)}/{meta.get("images", {}).get("total", 0)}')
+                return self._send_json({'title': title, 'slug': slug, 'markdown': markdown, 'meta': meta})
+            except ValueError as exc:
+                return self._send_json({'error': str(exc)}, 400)
             except Exception as exc:
                 return self._send_json({'error': str(exc)}, 500)
         if parsed.path == '/api/library':
@@ -453,7 +631,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({'error': 'not found'}, 404)
             length = int(self.headers.get('Content-Length', '0'))
             payload = json.loads(self.rfile.read(length).decode('utf-8'))
-            rel_path = payload['path'].lstrip('./')
+            rel_path = validate_doc_path(payload['path'])
             target = ROOT / rel_path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(payload['markdown'], encoding='utf-8')
@@ -468,6 +646,8 @@ class Handler(SimpleHTTPRequestHandler):
             )
             print(f'[save] {target}')
             return self._send_json({'ok': True, 'path': f'./{rel_path}'})
+        except (ValueError, FileNotFoundError) as exc:
+            return self._send_json({'error': str(exc)}, 400)
         except Exception as exc:
             return self._send_json({'error': str(exc)}, 500)
 

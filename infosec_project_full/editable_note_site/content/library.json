@@ -17,7 +17,20 @@
       "sourceUrl": "https://sh17c.top/LessonsNotes/D2CX_Xinanyuan/note/",
       "group": "",
       "order": 2
+    },
+    {
+      "title": "网站新手引导",
+      "slug": "网站新手引导",
+      "path": "./content/imports/网站新手引导.md",
+      "type": "import",
+      "group": "帮助",
+      "order": 1
     }
   ],
-  "groups": []
+  "groups": [
+    {
+      "name": "帮助",
+      "order": 1
+    }
+  ]
 }

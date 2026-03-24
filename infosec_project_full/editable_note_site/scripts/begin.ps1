@@ -1,3 +1,7 @@
+[CmdletBinding()]
+param(
+    [switch]$DryRun
+)
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -62,18 +66,22 @@ function Get-PythonRuntime() {
 }
 
 function Test-Dependencies($runtime) {
-    $args = @() + $runtime.Prefix + @("python", "-c", "import requests, bs4, markdownify")
-    if ($runtime.Mode -eq "python") {
-        $args = @() + $runtime.Prefix + @("-c", "import requests, bs4, markdownify")
+    if ($runtime.Mode -eq "conda") {
+        cmd /c "conda run -n $envName python -c ""import requests, bs4, markdownify"" >nul 2>nul"
+        return $LASTEXITCODE -eq 0
     }
-    & $runtime.Exec @args *> $null
+    if ($runtime.Exec -eq "py") {
+        cmd /c "py -3 -c ""import requests, bs4, markdownify"" >nul 2>nul"
+        return $LASTEXITCODE -eq 0
+    }
+    cmd /c "python -c ""import requests, bs4, markdownify"" >nul 2>nul"
     return $LASTEXITCODE -eq 0
 }
 
 function Install-Dependencies($runtime) {
     Write-Step "[4/5] Missing dependencies detected. Installing..."
     if ($runtime.Mode -eq "conda") {
-        Invoke-Checked $runtime.Exec (@() + $runtime.Prefix + @("pip", "install", "-r", "requirements.txt"))
+        Invoke-Checked $runtime.Exec (@() + $runtime.Prefix + @("python", "-m", "pip", "install", "-r", "requirements.txt"))
         return
     }
     Invoke-Checked $runtime.Exec (@() + $runtime.Prefix + @("-m", "pip", "install", "-r", "requirements.txt"))
@@ -110,6 +118,10 @@ try {
         Install-Dependencies $runtime
     } else {
         Write-Step "[4/5] Dependencies are ready."
+    }
+    if ($DryRun) {
+        Write-Step "[5/5] Dry run complete: environment and dependencies are ready."
+        exit 0
     }
     $exitCode = Start-Site $runtime
     Write-Host ""

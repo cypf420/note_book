@@ -17,6 +17,10 @@ const editToggleBtn = document.getElementById('editToggleBtn');
 const toggleLeftSidebarBtn = document.getElementById('toggleLeftSidebarBtn');
 const toggleRightSidebarBtn = document.getElementById('toggleRightSidebarBtn');
 const toggleRichBtn = document.getElementById('toggleRichBtn');
+const toggleThemeBtn = document.getElementById('toggleThemeBtn');
+const toggleWidthBtn = document.getElementById('toggleWidthBtn');
+const toggleFocusBtn = document.getElementById('toggleFocusBtn');
+const newBlankBtn = document.getElementById('newBlankBtn');
 const closeEditorBtn = document.getElementById('closeEditorBtn');
 const docSelect = document.getElementById('docSelect');
 const docTitleInput = document.getElementById('docTitle');
@@ -31,6 +35,7 @@ const docCount = document.getElementById('docCount');
 const searchCount = document.getElementById('searchCount');
 const tocList = document.getElementById('tocList');
 const tocPanel = document.getElementById('tocPanel');
+const toggleTocBtn = document.getElementById('toggleTocBtn');
 const docPath = document.getElementById('docPath');
 const modeText = document.getElementById('modeText');
 const permalink = document.getElementById('permalink');
@@ -38,6 +43,9 @@ const editorDrawer = document.getElementById('editorDrawer');
 const richToolbar = document.getElementById('richToolbar');
 const leftResizer = document.getElementById('leftResizer');
 const rightResizer = document.getElementById('rightResizer');
+const toggleTreeBtn = document.getElementById('toggleTreeBtn');
+const closeTreeDrawerBtn = document.getElementById('closeTreeDrawerBtn');
+const treeDrawer = document.getElementById('treeDrawer');
 const groupFilterSelect = document.getElementById('groupFilterSelect');
 const currentGroupSelect = document.getElementById('currentGroupSelect');
 const groupInput = document.getElementById('groupInput');
@@ -61,8 +69,19 @@ let originalContent = '';
 let leftSidebarCollapsed = false;
 let rightSidebarCollapsed = false;
 let richMode = false;
+let focusMode = false;
+let tocVisible = true;
+let darkTheme = false;
+let readingDensity = 'standard';
+let searchTimer = null;
+let searchBuildToken = 0;
 const LAYOUT_STORAGE_KEY = 'editable-note-site-layout';
 const GROUP_COLLAPSE_STORAGE_KEY = 'editable-note-site-group-collapse';
+const TREE_DRAWER_STORAGE_KEY = 'editable-note-site-tree-drawer-open';
+const THEME_STORAGE_KEY = 'editable-note-site-theme';
+const READING_DENSITY_STORAGE_KEY = 'editable-note-site-reading-density';
+const FOCUS_MODE_STORAGE_KEY = 'editable-note-site-focus-mode';
+const TOC_VISIBLE_STORAGE_KEY = 'editable-note-site-toc-visible';
 const DEFAULT_LAYOUT = { leftWidth: 310, rightWidth: 250 };
 const layoutState = readLayoutState();
 const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
@@ -71,12 +90,31 @@ const UNGROUPED_LABEL = '未分组';
 let currentGroupFilter = ALL_GROUPS_VALUE;
 let collapsedGroups = readCollapsedGroups();
 let draggedDocPath = null;
+let treeDrawerOpen = readTreeDrawerState();
 
 marked.setOptions({ breaks: true, gfm: true });
 
 function setStatus(text, isError = false) {
   statusText.textContent = text;
-  statusText.style.color = isError ? 'var(--danger)' : 'var(--text)';
+  statusText.classList.toggle('status-error', !!isError);
+  statusText.classList.toggle('status-ok', !isError);
+}
+
+function showIllegalAction(message) {
+  const text = `非法操作：${message}`;
+  setStatus(text, true);
+  alert(text);
+}
+
+function showRequestError(prefix, err) {
+  console.error(err);
+  const message = err?.message || String(err);
+  setStatus(`${prefix}：${message}`, true);
+  alert(`${prefix}：${message}\n\n请确认当前是通过 python scripts/server.py 或 begin.bat 启动的本地站点。`);
+}
+
+function looksLikeIllegalAction(message) {
+  return /分组名|请先|不能删除|不正确|只允许|非法|为空|group name|not allowed|only http|cannot be empty|forbidden|is not empty/.test((message || '').toLowerCase());
 }
 
 function clamp(value, min, max) {
@@ -85,6 +123,29 @@ function clamp(value, min, max) {
 
 function normalizeGroupName(group) {
   return (group || '').trim();
+}
+
+function validateGroupNameOrThrow(group) {
+  const normalized = normalizeGroupName(group);
+  if (!normalized) throw new Error('分组名不能为空');
+  if (normalized.length > 50) throw new Error('分组名不能超过 50 个字符');
+  if (/[\\/:*?"<>|]/.test(normalized)) throw new Error('分组名不能包含 \\ / : * ? " < > |');
+  return normalized;
+}
+
+function validateUrlOrThrow(url) {
+  const value = (url || '').trim();
+  if (!value) throw new Error('请先输入网址');
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch (_) {
+    throw new Error('网址格式不正确');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('只允许导入 http 或 https 网页');
+  }
+  return value;
 }
 
 function displayGroupName(group) {
@@ -140,6 +201,10 @@ function readCollapsedGroups() {
   }
 }
 
+function readTreeDrawerState() {
+  return localStorage.getItem(TREE_DRAWER_STORAGE_KEY) === '1';
+}
+
 function persistLayoutState() {
   localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layoutState));
 }
@@ -148,15 +213,86 @@ function persistCollapsedGroups() {
   localStorage.setItem(GROUP_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsedGroups));
 }
 
+function persistTreeDrawerState() {
+  localStorage.setItem(TREE_DRAWER_STORAGE_KEY, treeDrawerOpen ? '1' : '0');
+}
+
+function applyTheme(isDark) {
+  darkTheme = Boolean(isDark);
+  document.body.classList.toggle('theme-dark', darkTheme);
+  if (toggleThemeBtn) {
+    toggleThemeBtn.textContent = darkTheme ? '切换浅色报刊' : '切换夜间雅黑';
+  }
+  localStorage.setItem(THEME_STORAGE_KEY, darkTheme ? 'dark' : 'light');
+}
+
+function applyReadingDensity(mode) {
+  const next = ['compact', 'standard', 'wide'].includes(mode) ? mode : 'standard';
+  readingDensity = next;
+  document.body.classList.remove('density-compact', 'density-wide');
+  if (next === 'compact') document.body.classList.add('density-compact');
+  if (next === 'wide') document.body.classList.add('density-wide');
+  if (toggleWidthBtn) {
+    const labelMap = {
+      compact: '阅读宽度：专栏窄栏',
+      standard: '阅读宽度：标准',
+      wide: '阅读宽度：沉浸宽幅'
+    };
+    toggleWidthBtn.textContent = labelMap[next];
+  }
+  localStorage.setItem(READING_DENSITY_STORAGE_KEY, next);
+}
+
+function cycleReadingDensity() {
+  const order = ['compact', 'standard', 'wide'];
+  const index = order.indexOf(readingDensity);
+  const next = order[(index + 1) % order.length];
+  applyReadingDensity(next);
+  setStatus(`已切换阅读宽度：${next === 'compact' ? '专栏窄栏' : next === 'wide' ? '沉浸宽幅' : '标准宽度'}`);
+}
+
+function applyTocState() {
+  if (!tocPanel) return;
+  tocPanel.classList.toggle('hidden', !tocVisible);
+  if (toggleTocBtn) {
+    toggleTocBtn.textContent = tocVisible ? '收起目录栏' : '展开目录栏';
+    toggleTocBtn.setAttribute('aria-expanded', String(tocVisible));
+  }
+  localStorage.setItem(TOC_VISIBLE_STORAGE_KEY, tocVisible ? '1' : '0');
+}
+
+function setTocVisible(nextVisible) {
+  tocVisible = Boolean(nextVisible);
+  applyTocState();
+}
+
 function applyLayoutState() {
   document.documentElement.style.setProperty('--left-panel-width', `${layoutState.leftWidth}px`);
   document.documentElement.style.setProperty('--right-panel-width', `${layoutState.rightWidth}px`);
   document.body.classList.toggle('left-collapsed', leftSidebarCollapsed);
   document.body.classList.toggle('right-collapsed', rightSidebarCollapsed);
+  document.body.classList.toggle('focus-mode', focusMode);
   toggleLeftSidebarBtn.textContent = leftSidebarCollapsed ? '展开左栏' : '收起左栏';
   toggleRightSidebarBtn.textContent = rightSidebarCollapsed ? '展开右栏' : '收起右栏';
   toggleLeftSidebarBtn.setAttribute('aria-expanded', String(!leftSidebarCollapsed));
   toggleRightSidebarBtn.setAttribute('aria-expanded', String(!rightSidebarCollapsed));
+  if (toggleFocusBtn) {
+    toggleFocusBtn.textContent = focusMode ? '退出专注模式' : '专注模式';
+    toggleFocusBtn.setAttribute('aria-expanded', String(!focusMode));
+  }
+}
+
+function applyTreeDrawerState() {
+  treeDrawer.classList.toggle('hidden', !treeDrawerOpen);
+  treeDrawer.setAttribute('aria-hidden', String(!treeDrawerOpen));
+  toggleTreeBtn.setAttribute('aria-expanded', String(treeDrawerOpen));
+  toggleTreeBtn.textContent = treeDrawerOpen ? '收起笔记树' : '笔记树';
+}
+
+function setTreeDrawerOpen(nextOpen) {
+  treeDrawerOpen = Boolean(nextOpen);
+  persistTreeDrawerState();
+  applyTreeDrawerState();
 }
 
 function toggleLeftSidebar() {
@@ -173,8 +309,16 @@ function toggleRightSidebar() {
   setStatus(rightSidebarCollapsed ? '已收起右侧栏' : '已展开右侧栏');
 }
 
+function toggleFocusMode() {
+  focusMode = !focusMode;
+  localStorage.setItem(FOCUS_MODE_STORAGE_KEY, focusMode ? '1' : '0');
+  applyLayoutState();
+  setStatus(focusMode ? '已进入专注模式：左右栏已隐藏' : '已退出专注模式');
+}
+
 function startResize(side, evt) {
   if (evt.button !== 0 || window.innerWidth <= 900) return;
+  if (focusMode) return;
   if ((side === 'left' && leftSidebarCollapsed) || (side === 'right' && rightSidebarCollapsed)) return;
   evt.preventDefault();
   const startX = evt.clientX;
@@ -241,6 +385,22 @@ function getDocGroup(doc) {
 function getAvailableGroups() {
   const names = [...libraryGroups.map(group => group.name), ...library.map(doc => getDocGroup(doc))];
   return [...new Set(names.filter(Boolean))];
+}
+
+function getVisibleGroups() {
+  const orderedGroups = libraryGroups
+    .slice()
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'zh-CN'))
+    .map(group => group.name);
+  const documentGroups = library
+    .map(doc => getDocGroup(doc))
+    .filter(Boolean)
+    .filter(group => !orderedGroups.includes(group));
+  const visible = [...orderedGroups, ...documentGroups];
+  if (library.some(doc => !getDocGroup(doc))) {
+    visible.unshift('');
+  }
+  return [...new Set(visible)];
 }
 
 function getFilteredLibrary() {
@@ -602,6 +762,21 @@ function htmlToMarkdown(html) {
   return editor.value;
 }
 
+function execRichCommand(cmd, value = null) {
+  if (typeof document.execCommand === 'function') {
+    return document.execCommand(cmd, false, value);
+  }
+  if (cmd === 'insertHTML' && value) {
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount) return false;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(range.createContextualFragment(value));
+    return true;
+  }
+  return false;
+}
+
 function updateRichMode(enabled) {
   richMode = enabled;
   document.body.classList.toggle('rich-mode', enabled);
@@ -641,7 +816,16 @@ async function fetchJson(url, options = {}) {
   const res = await fetch(url, { cache: 'no-store', ...options });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(text || `HTTP ${res.status}: ${url}`);
+    let message = text;
+    if (text) {
+      try {
+        const data = JSON.parse(text);
+        message = data.error || data.message || text;
+      } catch (_) {
+        message = text;
+      }
+    }
+    throw new Error(message || `HTTP ${res.status}: ${url}`);
   }
   return res.json();
 }
@@ -650,9 +834,9 @@ function renderLibraryList() {
   docList.innerHTML = '';
   const filtered = getFilteredLibrary();
   const visibleGroups = currentGroupFilter === ALL_GROUPS_VALUE
-    ? getAvailableGroups()
+    ? getVisibleGroups()
     : [currentGroupFilter];
-  if (!filtered.length && currentGroupFilter === ALL_GROUPS_VALUE) {
+  if (!filtered.length && currentGroupFilter === ALL_GROUPS_VALUE && !visibleGroups.length) {
     docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
     docCount.textContent = String(library.length);
     return;
@@ -665,10 +849,11 @@ function renderLibraryList() {
   });
   visibleGroups.forEach(group => {
     const docs = groups.get(normalizeGroupName(group)) || [];
-    if (!docs.length && currentGroupFilter === ALL_GROUPS_VALUE) return;
     const section = document.createElement('section');
     section.className = 'doc-group-section';
     section.dataset.group = group;
+    section.setAttribute('role', 'treeitem');
+    section.setAttribute('aria-level', '1');
     const collapsed = isGroupCollapsed(group);
     section.innerHTML = `
       <button class="doc-group-head" data-action="toggle-group" aria-expanded="${String(!collapsed)}">
@@ -678,7 +863,7 @@ function renderLibraryList() {
           <span class="doc-group-chevron">${collapsed ? '展开' : '收起'}</span>
         </span>
       </button>
-      <div class="doc-group-body ${collapsed ? 'hidden' : ''}" data-group-body="${escapeHtml(group)}"></div>
+      <div class="doc-group-body ${collapsed ? 'hidden' : ''}" data-group-body="${escapeHtml(group)}" role="group"></div>
     `;
     const header = section.querySelector('[data-action="toggle-group"]');
     const body = section.querySelector('[data-group-body]');
@@ -691,6 +876,8 @@ function renderLibraryList() {
       const card = document.createElement('div');
       card.className = 'doc-card';
       card.dataset.path = doc.path;
+      card.setAttribute('role', 'treeitem');
+      card.setAttribute('aria-level', '2');
       if (canManageGroup(doc)) {
         card.draggable = true;
       }
@@ -722,6 +909,12 @@ function renderLibraryList() {
       }
       body.appendChild(card);
     });
+    if (!docs.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-search';
+      empty.textContent = '这个分组目前还没有笔记，可把文档拖到这里。';
+      body.appendChild(empty);
+    }
     docList.appendChild(section);
   });
   if (!docList.children.length) {
@@ -818,17 +1011,55 @@ function buildFrontMatter(title) {
   return `---\ntitle: ${title}\n---\n\n`;
 }
 
+function hasUnsavedChanges() {
+  if (!currentDoc) return false;
+  return editor.value !== originalContent;
+}
+
+function createBlankDocument() {
+  if (hasUnsavedChanges()) {
+    const confirmed = confirm('当前文档还有未保存修改。确定要新建空白文档吗？');
+    if (!confirmed) return;
+  }
+  const title = '未命名文档';
+  const pendingGroup = normalizeGroupName(getPendingGroupValue());
+  const blankMarkdown = buildFrontMatter(title);
+  currentDoc = {
+    path: '__adhoc__',
+    title,
+    slug: 'untitled',
+    type: 'adhoc',
+    group: pendingGroup
+  };
+  originalContent = blankMarkdown;
+  docTitleInput.value = title;
+  docSlugInput.value = 'untitled';
+  editor.value = blankMarkdown;
+  localStorage.removeItem(currentCacheKey());
+  render(!richMode);
+  openEditor(true);
+  docPath.textContent = 'adhoc / 新建空白文档';
+  permalink.href = '#';
+  permalink.textContent = '未保存文档';
+  history.replaceState(null, '', '#');
+  syncActiveCard();
+  updateDeleteButtonState();
+  updateGroupToolbarState();
+  setStatus('已创建空白文档，编辑后点击“保存到站点”即可落盘');
+}
+
 async function saveCurrentDocument() {
   const title = docTitleInput.value.trim() || '未命名文档';
   const slug = slugify(docSlugInput.value.trim() || title);
   const body = editor.value.trim();
+  const pendingGroup = getPendingGroupValue() ? validateGroupNameOrThrow(getPendingGroupValue()) : '';
   const payload = {
     path: currentDoc?.type === 'main' ? 'content/note.md' : `content/imports/${slug}.md`,
     title,
     slug,
     markdown: body.startsWith('---') ? body : buildFrontMatter(title) + body,
     type: currentDoc?.type === 'main' ? 'main' : 'import',
-    group: getPendingGroupValue(),
+    group: pendingGroup,
     order: Number.isFinite(Number(currentDoc?.order)) ? Number(currentDoc.order) : undefined
   };
   const result = await fetchJson('/api/save-document', {
@@ -876,11 +1107,7 @@ async function deleteGroup(name) {
 }
 
 async function createManagedGroup() {
-  const name = normalizeGroupName(newGroupInput.value);
-  if (!name) {
-    alert('请先输入新分组名。');
-    return;
-  }
+  const name = validateGroupNameOrThrow(newGroupInput.value);
   await createGroup(name);
   newGroupInput.value = name;
   await loadLibrary();
@@ -891,13 +1118,9 @@ async function createManagedGroup() {
 
 async function renameManagedGroup() {
   const oldName = getManagedGroupValue();
-  const newName = normalizeGroupName(newGroupInput.value);
+  const newName = validateGroupNameOrThrow(newGroupInput.value);
   if (!oldName) {
-    alert('请先选择一个要重命名的分组。');
-    return;
-  }
-  if (!newName) {
-    alert('请输入新的分组名。');
+    showIllegalAction('请先选择一个要重命名的分组');
     return;
   }
   await renameGroup(oldName, newName);
@@ -913,11 +1136,11 @@ async function renameManagedGroup() {
 async function deleteManagedGroup() {
   const name = getManagedGroupValue();
   if (!name) {
-    alert('请先选择一个要删除的分组。');
+    showIllegalAction('请先选择一个要删除的分组');
     return;
   }
   if (getGroupDocumentCount(name) > 0) {
-    alert('这个分组下还有笔记，不能删除。请先移动或删除这些笔记。');
+    showIllegalAction('这个分组下还有笔记，不能删除。请先移动或删除这些笔记');
     return;
   }
   const ok = confirm(`确定删除空分组“${name}”吗？`);
@@ -932,10 +1155,11 @@ async function deleteManagedGroup() {
 
 async function applyCurrentGroup() {
   if (!canManageGroup(currentDoc)) {
-    alert('请先把当前临时导入内容保存到站点，再进行分组。');
+    showIllegalAction('请先把当前临时导入内容保存到站点，再进行分组');
     return;
   }
-  const group = getPendingGroupValue();
+  const rawGroup = getPendingGroupValue();
+  const group = rawGroup ? validateGroupNameOrThrow(rawGroup) : '';
   if (currentGroupFilter !== ALL_GROUPS_VALUE) {
     currentGroupFilter = group;
   }
@@ -947,7 +1171,7 @@ async function applyCurrentGroup() {
 
 async function moveCurrentDocument(direction) {
   if (!canManageGroup(currentDoc)) {
-    alert('请先保存当前文档，再进行顺序调整。');
+    showIllegalAction('请先保存当前文档，再进行顺序调整');
     return;
   }
   const siblings = getGroupSiblings(currentDoc);
@@ -969,7 +1193,7 @@ async function moveCurrentDocument(direction) {
 
 async function deleteDocument(doc = currentDoc) {
   if (!canDeleteDoc(doc)) {
-    alert('主笔记或未保存的临时导入内容不能删除。');
+    showIllegalAction('主笔记或未保存的临时导入内容不能删除');
     return;
   }
   const ok = confirm(`确定删除《${doc.title || doc.slug}》吗？\n\n将会删除：\n- 文档文件\n- library.json 中的索引\n- content/assets/${doc.slug}/ 资源目录（如果存在）`);
@@ -997,13 +1221,13 @@ async function deleteDocument(doc = currentDoc) {
 }
 
 async function importUrl(mode) {
-  const url = urlInput.value.trim();
-  if (!url) {
-    alert('请先输入网址');
-    return;
-  }
+  const url = validateUrlOrThrow(urlInput.value);
+  const pendingGroup = getPendingGroupValue() ? validateGroupNameOrThrow(getPendingGroupValue()) : '';
   setStatus('正在抓取网址内容，请稍候…');
   const data = await fetchJson(`/api/import-url?url=${encodeURIComponent(url)}`);
+  const meta = data.meta || {};
+  const imageStats = meta.images || { total: 0, downloaded: 0, failed: 0 };
+  const importSummary = `类型: ${meta.detectedType || 'unknown'}；图片 ${imageStats.downloaded}/${imageStats.total}${imageStats.failed ? `，失败 ${imageStats.failed}` : ''}`;
   docTitleInput.value = data.title || docTitleInput.value;
   docSlugInput.value = slugify(data.slug || data.title || 'imported');
   if (mode === 'preview') {
@@ -1012,7 +1236,7 @@ async function importUrl(mode) {
       title: data.title || '网址导入',
       slug: slugify(data.slug || data.title || 'imported'),
       type: 'adhoc',
-      group: getPendingGroupValue()
+      group: pendingGroup
     };
     originalContent = data.markdown;
     editor.value = data.markdown;
@@ -1020,7 +1244,7 @@ async function importUrl(mode) {
     openEditor(true);
     docPath.textContent = 'adhoc / 未保存导入';
     updateGroupToolbarState();
-    setStatus(`已导入到编辑区：${data.title}`);
+    setStatus(`已导入到编辑区：${data.title}（${importSummary}）`);
     return;
   }
   const saveResult = await fetchJson('/api/save-document', {
@@ -1033,27 +1257,44 @@ async function importUrl(mode) {
       markdown: data.markdown,
       type: 'import',
       sourceUrl: url,
-      group: getPendingGroupValue()
+      group: pendingGroup
     })
   });
   await loadLibrary();
   await rebuildSearchIndex();
   await openDocument(saveResult.path);
-  setStatus(`已导入并保存：${saveResult.path}`);
+  setStatus(`已导入并保存：${saveResult.path}（${importSummary}）`);
 }
 
 async function rebuildSearchIndex() {
-  searchMeta.textContent = '正在建立搜索索引…';
-  const docs = [];
-  await Promise.all(library.map(async doc => {
-    try {
-      const md = await resolveDocContent(doc);
-      docs.push({ ...doc, markdown: md, plain: plainText(md) });
-    } catch (_) {
-      docs.push({ ...doc, markdown: '', plain: '' });
-    }
-  }));
-  searchIndex = docs;
+  const total = library.length;
+  const token = ++searchBuildToken;
+  searchIndex = [];
+  searchCount.textContent = '0';
+  if (!total) {
+    searchMeta.textContent = '文档库为空，暂无搜索索引';
+    runSearch();
+    return;
+  }
+  searchMeta.textContent = `正在建立搜索索引…0/${total}`;
+  const batchSize = 6;
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = library.slice(i, i + batchSize);
+    const docs = await Promise.all(batch.map(async doc => {
+      try {
+        const md = await resolveDocContent(doc);
+        return { ...doc, markdown: md, plain: plainText(md) };
+      } catch (_) {
+        return { ...doc, markdown: '', plain: '' };
+      }
+    }));
+    if (token !== searchBuildToken) return;
+    searchIndex.push(...docs);
+    searchCount.textContent = String(searchIndex.length);
+    searchMeta.textContent = `正在建立搜索索引…${searchIndex.length}/${total}`;
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  if (token !== searchBuildToken) return;
   searchCount.textContent = String(searchIndex.length);
   searchMeta.textContent = `已索引 ${searchIndex.length} 篇文档`;
   runSearch();
@@ -1098,7 +1339,10 @@ docTitleInput.addEventListener('input', () => {
 });
 
 docSelect.addEventListener('change', async () => openDocument(docSelect.value));
-searchInput.addEventListener('input', runSearch);
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 160);
+});
 groupFilterSelect.addEventListener('change', () => {
   currentGroupFilter = groupFilterSelect.value;
   renderLibraryList();
@@ -1106,6 +1350,8 @@ groupFilterSelect.addEventListener('change', () => {
 currentGroupSelect.addEventListener('change', () => {
   groupInput.value = currentGroupSelect.value;
 });
+toggleTreeBtn.addEventListener('click', () => setTreeDrawerOpen(!treeDrawerOpen));
+closeTreeDrawerBtn.addEventListener('click', () => setTreeDrawerOpen(false));
 manageGroupSelect.addEventListener('change', () => {
   newGroupInput.value = manageGroupSelect.value;
   updateGroupToolbarState();
@@ -1114,36 +1360,32 @@ createGroupBtn.addEventListener('click', async () => {
   try {
     await createManagedGroup();
   } catch (err) {
-    console.error(err);
-    setStatus(`新建分组失败：${err.message}`, true);
-    alert(`新建分组失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('新建分组失败', err);
   }
 });
 renameGroupBtn.addEventListener('click', async () => {
   try {
     await renameManagedGroup();
   } catch (err) {
-    console.error(err);
-    setStatus(`重命名分组失败：${err.message}`, true);
-    alert(`重命名分组失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('重命名分组失败', err);
   }
 });
 deleteGroupBtn.addEventListener('click', async () => {
   try {
     await deleteManagedGroup();
   } catch (err) {
-    console.error(err);
-    setStatus(`删除分组失败：${err.message}`, true);
-    alert(`删除分组失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('删除分组失败', err);
   }
 });
 applyGroupBtn.addEventListener('click', async () => {
   try {
     await applyCurrentGroup();
   } catch (err) {
-    console.error(err);
-    setStatus(`分组更新失败：${err.message}`, true);
-    alert(`分组更新失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('分组更新失败', err);
   }
 });
 clearGroupBtn.addEventListener('click', async () => {
@@ -1152,27 +1394,24 @@ clearGroupBtn.addEventListener('click', async () => {
   try {
     await applyCurrentGroup();
   } catch (err) {
-    console.error(err);
-    setStatus(`分组更新失败：${err.message}`, true);
-    alert(`分组更新失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('分组更新失败', err);
   }
 });
 moveDocUpBtn.addEventListener('click', async () => {
   try {
     await moveCurrentDocument(-1);
   } catch (err) {
-    console.error(err);
-    setStatus(`顺序调整失败：${err.message}`, true);
-    alert(`顺序调整失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('顺序调整失败', err);
   }
 });
 moveDocDownBtn.addEventListener('click', async () => {
   try {
     await moveCurrentDocument(1);
   } catch (err) {
-    console.error(err);
-    setStatus(`顺序调整失败：${err.message}`, true);
-    alert(`顺序调整失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('顺序调整失败', err);
   }
 });
 refreshLibraryBtn.addEventListener('click', async () => {
@@ -1192,9 +1431,8 @@ saveBtn.addEventListener('click', async () => {
   try {
     await saveCurrentDocument();
   } catch (err) {
-    console.error(err);
-    setStatus(`保存失败：${err.message}`, true);
-    alert(`保存失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('保存失败', err);
   }
 });
 
@@ -1216,9 +1454,8 @@ deleteBtn.addEventListener('click', async () => {
   try {
     await deleteDocument();
   } catch (err) {
-    console.error(err);
-    setStatus(`删除失败：${err.message}`, true);
-    alert(`删除失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('删除失败', err);
   }
 });
 
@@ -1226,9 +1463,11 @@ importPreviewBtn.addEventListener('click', async () => {
   try {
     await importUrl('preview');
   } catch (err) {
-    console.error(err);
-    setStatus(`导入失败：${err.message}`, true);
-    alert(`导入失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) {
+      showIllegalAction(err.message);
+    } else {
+      showRequestError('导入失败', err);
+    }
   }
 });
 
@@ -1236,9 +1475,11 @@ importSaveBtn.addEventListener('click', async () => {
   try {
     await importUrl('save');
   } catch (err) {
-    console.error(err);
-    setStatus(`导入保存失败：${err.message}`, true);
-    alert(`导入保存失败：${err.message}\n\n请确认当前是通过 python scripts/server.py 启动的本地站点。`);
+    if (looksLikeIllegalAction(err.message)) {
+      showIllegalAction(err.message);
+    } else {
+      showRequestError('导入保存失败', err);
+    }
   }
 });
 
@@ -1247,6 +1488,21 @@ closeEditorBtn.addEventListener('click', () => openEditor(false));
 toggleLeftSidebarBtn.addEventListener('click', toggleLeftSidebar);
 toggleRightSidebarBtn.addEventListener('click', toggleRightSidebar);
 toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
+if (toggleThemeBtn) {
+  toggleThemeBtn.addEventListener('click', () => applyTheme(!darkTheme));
+}
+if (toggleWidthBtn) {
+  toggleWidthBtn.addEventListener('click', cycleReadingDensity);
+}
+if (toggleFocusBtn) {
+  toggleFocusBtn.addEventListener('click', toggleFocusMode);
+}
+if (newBlankBtn) {
+  newBlankBtn.addEventListener('click', createBlankDocument);
+}
+if (toggleTocBtn) {
+  toggleTocBtn.addEventListener('click', () => setTocVisible(!tocVisible));
+}
 leftResizer.addEventListener('pointerdown', evt => startResize('left', evt));
 rightResizer.addEventListener('pointerdown', evt => startResize('right', evt));
 window.addEventListener('resize', applyLayoutState);
@@ -1264,16 +1520,16 @@ richToolbar.addEventListener('click', evt => {
   const cmd = btn.dataset.cmd;
   preview.focus();
   if (cmd === 'h2') {
-    document.execCommand('formatBlock', false, 'h2');
+    execRichCommand('formatBlock', 'h2');
   } else if (cmd === 'blockquote') {
-    document.execCommand('formatBlock', false, 'blockquote');
+    execRichCommand('formatBlock', 'blockquote');
   } else if (cmd === 'code') {
-    document.execCommand('insertHTML', false, '<code>代码</code>');
+    execRichCommand('insertHTML', '<code>代码</code>');
   } else if (cmd === 'createLink') {
     const link = prompt('请输入链接地址：', 'https://');
-    if (link) document.execCommand('createLink', false, link);
+    if (link) execRichCommand('createLink', link);
   } else {
-    document.execCommand(cmd, false, null);
+    execRichCommand(cmd, null);
   }
   editor.value = htmlToMarkdown(preview.innerHTML);
   localStorage.setItem(currentCacheKey(), editor.value);
@@ -1300,7 +1556,10 @@ document.addEventListener('keydown', async evt => {
     evt.preventDefault();
     try { await saveCurrentDocument(); } catch (err) { setStatus(`保存失败：${err.message}`, true); }
   }
-  if (evt.key === 'Escape') openEditor(false);
+  if (evt.key === 'Escape') {
+    openEditor(false);
+    if (treeDrawerOpen) setTreeDrawerOpen(false);
+  }
   if (mod && evt.key.toLowerCase() === 'e') {
     evt.preventDefault();
     openEditor(editorDrawer.classList.contains('hidden'));
@@ -1312,10 +1571,16 @@ document.addEventListener('keydown', async evt => {
 });
 
 async function init() {
+  applyTheme(localStorage.getItem(THEME_STORAGE_KEY) === 'dark');
+  applyReadingDensity(localStorage.getItem(READING_DENSITY_STORAGE_KEY) || 'standard');
+  focusMode = localStorage.getItem(FOCUS_MODE_STORAGE_KEY) === '1';
+  tocVisible = localStorage.getItem(TOC_VISIBLE_STORAGE_KEY) !== '0';
   if (STATIC_HOST) {
-    setStatus('当前是只读模式，保存和网址导入需要本地服务端。');
+    setStatus('当前是静态只读模式：可阅读、搜索、导航；保存和网址导入需要本地服务端。');
   }
   applyLayoutState();
+  applyTreeDrawerState();
+  applyTocState();
   await loadLibrary();
   await rebuildSearchIndex();
   const { doc, section } = findDocByHash();
