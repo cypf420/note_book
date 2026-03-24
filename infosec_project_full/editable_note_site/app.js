@@ -285,75 +285,6 @@ function execRichCommand(cmd, value = null) {
   return false;
 }
 
-function findEditableBlock(node) {
-  if (!node) return null;
-  if (node.nodeType === Node.TEXT_NODE) return findEditableBlock(node.parentElement);
-  if (!(node instanceof Element)) return null;
-  return node.closest('p, div, li, blockquote, h1, h2, h3, h4, h5, h6');
-}
-
-function readBlockPrefix(block, selection) {
-  if (!block || !selection || !selection.rangeCount) return '';
-  const range = selection.getRangeAt(0);
-  const prefixRange = range.cloneRange();
-  prefixRange.setStart(block, 0);
-  return prefixRange.toString();
-}
-
-function resetBlockPrefix(block, range) {
-  if (!block || !range) return;
-  const resetRange = range.cloneRange();
-  resetRange.setStart(block, 0);
-  resetRange.deleteContents();
-}
-
-function applyRichMarkdownShortcut(event) {
-  if (!richMode) return false;
-  const isTrigger = event.key === ' ' || event.key === 'Enter';
-  if (!isTrigger) return false;
-  const selection = window.getSelection();
-  if (!selection || !selection.rangeCount || !selection.isCollapsed) return false;
-  const range = selection.getRangeAt(0);
-  const block = findEditableBlock(range.startContainer);
-  if (!block || !preview.contains(block)) return false;
-  const prefix = readBlockPrefix(block, selection);
-  const trimmed = prefix.trim();
-  let matched = false;
-  const heading = prefix.match(/^(#{1,3})\s$/);
-  if (heading) {
-    event.preventDefault();
-    resetBlockPrefix(block, range);
-    execRichCommand('formatBlock', `h${heading[1].length}`);
-    matched = true;
-  } else if (/^>\s$/.test(prefix)) {
-    event.preventDefault();
-    resetBlockPrefix(block, range);
-    execRichCommand('formatBlock', 'blockquote');
-    matched = true;
-  } else if (/^[-*]\s$/.test(prefix)) {
-    event.preventDefault();
-    resetBlockPrefix(block, range);
-    execRichCommand('insertUnorderedList');
-    matched = true;
-  } else if (/^1\.\s$/.test(prefix)) {
-    event.preventDefault();
-    resetBlockPrefix(block, range);
-    execRichCommand('insertOrderedList');
-    matched = true;
-  } else if (trimmed === '```') {
-    event.preventDefault();
-    resetBlockPrefix(block, range);
-    execRichCommand('insertHTML', '<pre><code>代码</code></pre>');
-    matched = true;
-  }
-  if (matched) {
-    editor.value = htmlToMarkdown(preview.innerHTML);
-    localStorage.setItem(currentCacheKey(), editor.value);
-    buildTOC();
-  }
-  return matched;
-}
-
 function updateRichMode(enabled) {
   richMode = enabled;
   document.body.classList.toggle('rich-mode', enabled);
@@ -539,8 +470,8 @@ async function importUrl(mode) {
   setStatus('正在抓取网址内容，请稍候…');
   const data = await fetchJson(`/api/import-url?url=${encodeURIComponent(url)}`);
   const meta = data.meta || {};
-  const imageStats = meta.images || { total: 0, downloaded: 0, failed: 0, skipped: 0 };
-  const importSummary = `类型: ${meta.detectedType || 'unknown'}；图片 ${imageStats.downloaded}/${imageStats.total}${imageStats.failed ? `，失败 ${imageStats.failed}` : ''}${imageStats.skipped ? `，跳过 ${imageStats.skipped}` : ''}`;
+  const imageStats = meta.images || { total: 0, downloaded: 0, failed: 0 };
+  const importSummary = `类型: ${meta.detectedType || 'unknown'}；图片 ${imageStats.downloaded}/${imageStats.total}${imageStats.failed ? `，失败 ${imageStats.failed}` : ''}`;
   docTitleInput.value = data.title || docTitleInput.value;
   docSlugInput.value = slugify(data.slug || data.title || 'imported');
   if (mode === 'preview') {
@@ -726,10 +657,6 @@ preview.addEventListener('input', () => {
   editor.value = htmlToMarkdown(preview.innerHTML);
   localStorage.setItem(currentCacheKey(), editor.value);
   buildTOC();
-});
-
-preview.addEventListener('keydown', event => {
-  applyRichMarkdownShortcut(event);
 });
 
 richToolbar.addEventListener('click', evt => {

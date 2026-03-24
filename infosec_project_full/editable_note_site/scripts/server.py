@@ -79,39 +79,16 @@ def update_library_entry(path: str, title: str, slug: str, doc_type: str, source
     save_library(data)
 
 
-def fetch_url_text(url: str) -> requests.Response:
-    return SESSION.get(url, timeout=35, allow_redirects=True)
-
-
-def _class_hint_score(tag) -> int:
-    attrs = ' '.join([
-        ' '.join(tag.get('class', [])),
-        tag.get('id', ''),
-        tag.get('role', ''),
-        tag.get('itemprop', '')
-    ]).lower()
-    pos = ['article', 'content', 'post', 'entry', 'main', 'markdown', 'body', 'detail']
-    neg = ['nav', 'footer', 'header', 'sidebar', 'menu', 'comment', 'related', 'recommend', 'ads', 'advert']
-    return sum(16 for k in pos if k in attrs) - sum(14 for k in neg if k in attrs)
-
-
-def _candidate_score(tag) -> float:
-    text_len = len(tag.get_text(' ', strip=True))
-    if text_len < 160:
-        return -1
-    p_count = len(tag.find_all('p'))
-    heading_count = len(tag.find_all(re.compile(r'^h[1-4]$')))
-    img_count = len(tag.find_all('img'))
-    link_text = sum(len(a.get_text(' ', strip=True)) for a in tag.find_all('a'))
-    link_density = (link_text / max(text_len, 1))
-    score = (text_len * 0.7) + (p_count * 36) + (heading_count * 26) + (img_count * 10)
-    score += _class_hint_score(tag)
-    score -= link_density * 260
-    return score
-
-
-def _pick_content_container(soup: BeautifulSoup):
-    direct = [
+def extract_main_html(url: str, html_text: str | None = None) -> tuple[str, str]:
+    if html_text is None:
+        resp = requests.get(url, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        html_text = resp.text
+    soup = BeautifulSoup(html_text, 'html.parser')
+    title = soup.title.string.strip() if soup.title and soup.title.string else urlparse(url).netloc
+    for tag in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
+        tag.decompose()
+    candidates = [
         soup.find('article'),
         soup.find('main'),
         soup.select_one('[role="main"]'),
@@ -187,26 +164,6 @@ def is_plain_text_like(content_type: str, text: str) -> bool:
     return not has_html_structure
 
 
-def _resolve_image_source(img) -> str:
-    direct = (img.get('src') or '').strip()
-    lazy = (img.get('data-src') or img.get('data-original') or img.get('data-lazy-src') or '').strip()
-    srcset = (img.get('srcset') or '').strip()
-    if direct:
-        return direct
-    if lazy:
-        return lazy
-    if srcset:
-        first = srcset.split(',')[0].strip().split(' ')[0].strip()
-        return first
-    return ''
-
-
-def _safe_image_ext(img_url: str) -> str:
-    parsed = urlparse(img_url)
-    ext = Path(parsed.path).suffix.lower() or '.png'
-    return ext if ext in ALLOWED_IMG_EXTS else '.png'
-
-
 def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[str, dict]:
     soup = BeautifulSoup(html, 'html.parser')
     target_dir = ASSET_DIR / slug
@@ -214,18 +171,11 @@ def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[st
     total = 0
     downloaded = 0
     failed = 0
-    skipped = 0
     for index, img in enumerate(soup.find_all('img'), start=1):
         total += 1
-        if total > MAX_IMPORT_IMAGES:
-            skipped += 1
-            continue
-        src = _resolve_image_source(img)
+        src = img.get('src')
         if not src:
             failed += 1
-            continue
-        if src.startswith(('data:', 'javascript:')):
-            skipped += 1
             continue
         img_url = urljoin(page_url, src)
         ext = _safe_image_ext(img_url)
@@ -246,7 +196,7 @@ def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[st
         except Exception:
             img['src'] = img_url
             failed += 1
-    return str(soup), {'total': total, 'downloaded': downloaded, 'failed': failed, 'skipped': skipped}
+    return str(soup), {'total': total, 'downloaded': downloaded, 'failed': failed}
 
 
 def html_to_markdown(html: str, title: str) -> str:
@@ -271,10 +221,8 @@ def plain_text_to_markdown(text: str, title: str) -> str:
 
 
 def import_url_to_markdown(url: str) -> tuple[str, str, str, dict]:
-    resp = fetch_url_text(url)
+    resp = requests.get(url, headers=HEADERS, timeout=30)
     resp.raise_for_status()
-    if not resp.encoding:
-        resp.encoding = resp.apparent_encoding or 'utf-8'
     ctype = resp.headers.get('Content-Type', '')
     text = resp.text
     if is_markdown_like(url, ctype, text):
