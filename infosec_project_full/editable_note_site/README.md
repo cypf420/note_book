@@ -224,6 +224,38 @@ git commit -m "feat: add typora-like reading mode, toc, search and pages workflo
 git push
 ```
 
+## 合并冲突排查（你本地仓库“出问题”时）
+
+先看状态：
+
+```bash
+git status
+```
+
+如果当前正卡在 merge/rebase 流程，可先中止：
+
+```bash
+git merge --abort
+# 或
+git rebase --abort
+```
+
+然后同步远端最新：
+
+```bash
+git fetch --all --prune
+git pull --rebase origin main
+```
+
+如果你确认本地改动不要了，直接覆盖到远端最新版：
+
+```bash
+git fetch origin
+git reset --hard origin/main
+```
+
+> 注意：`reset --hard` 会删除本地未提交改动，请先备份。
+
 ## 关于同步到 GitHub
 
 我已经为你补齐了可推送的目录和工作流模板。

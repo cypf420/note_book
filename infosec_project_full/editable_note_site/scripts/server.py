@@ -19,6 +19,10 @@ IMPORT_DIR = CONTENT_DIR / 'imports'
 ASSET_DIR = CONTENT_DIR / 'assets'
 LIBRARY_FILE = CONTENT_DIR / 'library.json'
 HEADERS = {'User-Agent': 'EditableNoteSite/3.0 (+https://127.0.0.1)'}
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+MAX_IMPORT_IMAGES = 80
+ALLOWED_IMG_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif'}
 
 
 def slugify(text: str) -> str:
@@ -87,13 +91,46 @@ def extract_main_html(url: str, html_text: str | None = None) -> tuple[str, str]
     candidates = [
         soup.find('article'),
         soup.find('main'),
+        soup.select_one('[role="main"]'),
         soup.select_one('.markdown-body'),
-        soup.select_one('.content'),
+        soup.select_one('.post-content'),
+        soup.select_one('.article-content'),
         soup.select_one('#content'),
-        soup.body,
+        soup.select_one('#main-content')
     ]
-    container = next((c for c in candidates if c is not None), soup)
-    for node in container.find_all(['nav', 'footer', 'header', 'aside']):
+    direct = [node for node in direct if node is not None]
+    if direct:
+        best_direct = max(direct, key=_candidate_score)
+        if _candidate_score(best_direct) > 120:
+            return best_direct
+    candidates = soup.find_all(['article', 'main', 'section', 'div'])
+    best = None
+    best_score = -1.0
+    for node in candidates:
+        score = _candidate_score(node)
+        if score > best_score:
+            best_score = score
+            best = node
+    return best if best is not None else soup.body or soup
+
+
+def extract_main_html(url: str, html_text: str | None = None) -> tuple[str, str]:
+    if html_text is None:
+        resp = fetch_url_text(url)
+        resp.raise_for_status()
+        if not resp.encoding:
+            resp.encoding = resp.apparent_encoding or 'utf-8'
+        html_text = resp.text
+    soup = BeautifulSoup(html_text, 'html.parser')
+    meta_title = soup.find('meta', attrs={'property': 'og:title'})
+    page_title = (meta_title.get('content') or '').strip() if meta_title else ''
+    title = page_title or (soup.title.string.strip() if soup.title and soup.title.string else urlparse(url).netloc)
+    for tag in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
+        tag.decompose()
+    container = _pick_content_container(soup)
+    for node in container.find_all(['nav', 'footer', 'header', 'aside', 'form']):
+        node.decompose()
+    for node in container.select('.advertisement, .ads, .share, .social, .comment, .comments, .recommend, .related'):
         node.decompose()
     return title, str(container)
 
@@ -141,13 +178,17 @@ def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[st
             failed += 1
             continue
         img_url = urljoin(page_url, src)
-        parsed = urlparse(img_url)
-        ext = Path(parsed.path).suffix or '.png'
+        ext = _safe_image_ext(img_url)
         filename = f'image-{index}{ext}'
         local_path = target_dir / filename
         try:
-            r = requests.get(img_url, headers=HEADERS, timeout=30, stream=True)
+            r = SESSION.get(img_url, timeout=30, stream=True)
             r.raise_for_status()
+            ctype = (r.headers.get('Content-Type') or '').lower()
+            if ctype and 'image' not in ctype:
+                failed += 1
+                img['src'] = img_url
+                continue
             with open(local_path, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
             img['src'] = f'./content/assets/{slug}/{filename}'

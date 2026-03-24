@@ -463,6 +463,10 @@ async function importUrl(mode) {
     alert('请先输入网址');
     return;
   }
+  if (!/^https?:\/\//i.test(url)) {
+    alert('请输入以 http:// 或 https:// 开头的网址');
+    return;
+  }
   setStatus('正在抓取网址内容，请稍候…');
   const data = await fetchJson(`/api/import-url?url=${encodeURIComponent(url)}`);
   const meta = data.meta || {};
