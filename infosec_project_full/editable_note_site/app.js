@@ -1152,6 +1152,29 @@ function applyRichMarkdownShortcuts() {
   }
 }
 
+function insertRichCodeBlock() {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return false;
+  const range = selection.getRangeAt(0);
+  if (!preview.contains(range.commonAncestorContainer)) return false;
+
+  const selectedText = selection.toString();
+  const pre = document.createElement('pre');
+  const code = document.createElement('code');
+  code.appendChild(document.createTextNode(selectedText || ''));
+  pre.appendChild(code);
+
+  range.deleteContents();
+  range.insertNode(pre);
+
+  if (selectedText) {
+    placeCaretAfterNode(pre);
+  } else {
+    setCaretAtStart(code);
+  }
+  return true;
+}
+
 function execRichCommand(cmd, value = null) {
   if (typeof document.execCommand === 'function') {
     return document.execCommand(cmd, false, value);
@@ -2026,7 +2049,7 @@ richToolbar.addEventListener('click', evt => {
   } else if (cmd === 'blockquote') {
     execRichCommand('formatBlock', 'blockquote');
   } else if (cmd === 'code') {
-    execRichCommand('insertHTML', '<code>代码</code>');
+    insertRichCodeBlock();
   } else if (cmd === 'createLink') {
     const link = prompt('请输入链接地址：', 'https://');
     if (link) execRichCommand('createLink', link);
