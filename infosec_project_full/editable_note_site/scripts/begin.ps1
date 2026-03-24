@@ -102,7 +102,7 @@ function Start-Site($runtime) {
 }
 
 Write-Host "========================================"
-Write-Host "  Editable Note Site - One Click Start"
+Write-Host "  Local Notes Workspace - One Click Start"
 Write-Host "========================================"
 Write-Host ""
 Write-Host "Project directory: $root"

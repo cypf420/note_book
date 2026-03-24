@@ -40,17 +40,20 @@ def ensure_dirs() -> None:
     (IMPORT_DIR / '.gitkeep').touch()
     (ASSET_DIR / '.gitkeep').touch()
     if not LIBRARY_FILE.exists():
+        documents = []
+        guide_path = IMPORT_DIR / '新手引导.md'
+        if guide_path.exists():
+            documents.append({
+                'title': '新手引导',
+                'slug': '新手引导',
+                'path': './content/imports/新手引导.md',
+                'type': 'import',
+                'group': '帮助',
+                'order': 1
+            })
         LIBRARY_FILE.write_text(json.dumps({
-            'groups': [],
-            'documents': [
-                {
-                    'title': '信息安全原理主笔记',
-                    'slug': 'note',
-                    'path': './content/note.md',
-                    'type': 'main',
-                    'remoteFallback': 'https://raw.githubusercontent.com/sqc-cyh/sqc-cyh.github.io/main/docs/LessonsNotes/D2CX_Xinanyuan/note.md'
-                }
-            ]
+            'groups': [{'name': '帮助', 'order': 1}] if documents else [],
+            'documents': documents
         }, ensure_ascii=False, indent=2), encoding='utf-8')
 
 
@@ -66,7 +69,11 @@ def save_library(data: dict) -> None:
 
 
 def normalize_group_name(group: str | None) -> str:
-    return (group or '').strip()
+    text = (group or '').replace('\\', '/').strip()
+    if not text:
+        return ''
+    parts = [part.strip() for part in text.split('/') if part.strip()]
+    return '/'.join(parts)
 
 
 def validate_group_name(group: str | None, allow_empty: bool = True) -> str:
@@ -75,11 +82,53 @@ def validate_group_name(group: str | None, allow_empty: bool = True) -> str:
         if allow_empty:
             return ''
         raise ValueError('分组名不能为空')
-    if len(normalized) > 50:
-        raise ValueError('分组名不能超过 50 个字符')
-    if re.search(r'[\\/:*?"<>|]', normalized):
-        raise ValueError('分组名不能包含 \\ / : * ? " < > |')
+    if normalized.startswith('/') or normalized.endswith('/') or '//' in normalized:
+        raise ValueError('分组层级格式不正确')
+    parts = normalized.split('/')
+    if any(not part for part in parts):
+        raise ValueError('分组层级格式不正确')
+    for part in parts:
+        if len(part) > 50:
+            raise ValueError('每级分组名不能超过 50 个字符')
+        if re.search(r'[\\:*?"<>|]', part):
+            raise ValueError('分组名不能包含 \\ : * ? " < > |')
     return normalized
+
+
+def split_group_name(group: str | None) -> list[str]:
+    normalized = normalize_group_name(group)
+    return normalized.split('/') if normalized else []
+
+
+def group_parent_name(group: str | None) -> str:
+    parts = split_group_name(group)
+    return '/'.join(parts[:-1]) if len(parts) > 1 else ''
+
+
+def group_leaf_name(group: str | None) -> str:
+    parts = split_group_name(group)
+    return parts[-1] if parts else ''
+
+
+def join_group_name(parent: str | None, leaf: str | None) -> str:
+    parent_name = validate_group_name(parent)
+    leaf_name = validate_group_name(leaf, allow_empty=False)
+    if '/' in leaf_name:
+        raise ValueError('新建子分组时，名称不能再包含 /')
+    return f'{parent_name}/{leaf_name}' if parent_name else leaf_name
+
+
+def is_group_within(group: str | None, root: str | None) -> bool:
+    group_name = validate_group_name(group)
+    root_name = validate_group_name(root)
+    if not root_name:
+        return True
+    return group_name == root_name or group_name.startswith(f'{root_name}/')
+
+
+def count_group_siblings(groups: list[dict], parent: str) -> int:
+    normalized_parent = validate_group_name(parent)
+    return sum(1 for item in groups if group_parent_name(item.get('name')) == normalized_parent)
 
 
 def validate_doc_path(path: str) -> str:
@@ -124,7 +173,18 @@ def normalize_library_data(data: dict) -> dict:
             seen.add(group)
             normalized_groups.append({'name': group, 'order': len(normalized_groups) + 1})
 
-    normalized_groups.sort(key=lambda item: (int(item.get('order', 999999)), item.get('name', '').lower()))
+    for group in list(normalized_groups):
+        parent = group_parent_name(group['name'])
+        if parent and parent not in seen:
+            seen.add(parent)
+            normalized_groups.append({'name': parent, 'order': len(normalized_groups) + 1})
+
+    normalized_groups.sort(key=lambda item: (
+        len(split_group_name(item.get('name'))),
+        group_parent_name(item.get('name')).lower(),
+        int(item.get('order', 999999)),
+        item.get('name', '').lower()
+    ))
     for index, group in enumerate(normalized_groups, start=1):
         group['order'] = index
     data['groups'] = normalized_groups
@@ -137,9 +197,12 @@ def ensure_group_exists(data: dict, group: str) -> None:
     if not normalized:
         return
     groups = data.setdefault('groups', [])
+    parent = group_parent_name(normalized)
+    if parent:
+        ensure_group_exists(data, parent)
     if any(normalize_group_name(item.get('name')) == normalized for item in groups):
         return
-    groups.append({'name': normalized, 'order': len(groups) + 1})
+    groups.append({'name': normalized, 'order': count_group_siblings(groups, parent) + 1})
 
 
 def find_group_entry(data: dict, group: str) -> tuple[list[dict], int]:
@@ -151,15 +214,16 @@ def find_group_entry(data: dict, group: str) -> tuple[list[dict], int]:
     return groups, index
 
 
-def create_group(group: str) -> dict:
-    normalized = validate_group_name(group, allow_empty=False)
+def create_group(group: str, parent: str | None = None) -> dict:
+    normalized = join_group_name(parent, group) if parent is not None else validate_group_name(group, allow_empty=False)
     data = load_library()
     groups = data.setdefault('groups', [])
     if any(normalize_group_name(item.get('name')) == normalized for item in groups):
         raise ValueError('分组已存在')
-    groups.append({'name': normalized, 'order': len(groups) + 1})
+    ensure_group_exists(data, group_parent_name(normalized))
+    groups.append({'name': normalized, 'order': count_group_siblings(groups, group_parent_name(normalized)) + 1})
     save_library(data)
-    return {'name': normalized}
+    return {'name': normalized, 'parent': group_parent_name(normalized)}
 
 
 def rename_group(old_group: str, new_group: str) -> dict:
@@ -167,21 +231,73 @@ def rename_group(old_group: str, new_group: str) -> dict:
     new_name = validate_group_name(new_group, allow_empty=False)
     data = load_library()
     groups, index = find_group_entry(data, old_name)
-    if old_name != new_name and any(normalize_group_name(item.get('name')) == new_name for item in groups):
+    if new_name != old_name and any(
+        normalize_group_name(item.get('name')) == new_name or normalize_group_name(item.get('name')).startswith(f'{new_name}/')
+        for item in groups
+    ):
         raise ValueError('目标分组已存在')
-    groups[index]['name'] = new_name
+    ensure_group_exists(data, group_parent_name(new_name))
+    prefix = f'{old_name}/'
+    for item in groups:
+        item_name = normalize_group_name(item.get('name'))
+        if item_name == old_name:
+            item['name'] = new_name
+        elif item_name.startswith(prefix):
+            item['name'] = f'{new_name}/{item_name[len(prefix):]}'
     for doc in data.setdefault('documents', []):
-        if normalize_group_name(doc.get('group')) == old_name:
+        doc_group = normalize_group_name(doc.get('group'))
+        if doc_group == old_name:
             doc['group'] = new_name
+        elif doc_group.startswith(prefix):
+            doc['group'] = f'{new_name}/{doc_group[len(prefix):]}'
     save_library(data)
     return {'oldName': old_name, 'newName': new_name}
+
+
+def update_group_parent(group: str, parent: str | None = None) -> dict:
+    name = validate_group_name(group, allow_empty=False)
+    parent_name = validate_group_name(parent)
+    data = load_library()
+    groups, _ = find_group_entry(data, name)
+    if parent_name and is_group_within(parent_name, name):
+        raise ValueError('不能把分组移动到它自己的子分组里')
+    target_name = f'{parent_name}/{group_leaf_name(name)}' if parent_name else group_leaf_name(name)
+    target_name = validate_group_name(target_name, allow_empty=False)
+    if target_name != name and any(
+        normalize_group_name(item.get('name')) == target_name or normalize_group_name(item.get('name')).startswith(f'{target_name}/')
+        for item in groups
+    ):
+        raise ValueError('目标位置已经存在同名分组')
+    if target_name == name:
+        return {'name': name, 'parent': group_parent_name(name)}
+    ensure_group_exists(data, parent_name)
+    prefix = f'{name}/'
+    for item in groups:
+        item_name = normalize_group_name(item.get('name'))
+        if item_name == name:
+            item['name'] = target_name
+        elif item_name.startswith(prefix):
+            item['name'] = f'{target_name}/{item_name[len(prefix):]}'
+    for doc in data.setdefault('documents', []):
+        doc_group = normalize_group_name(doc.get('group'))
+        if doc_group == name:
+            doc['group'] = target_name
+        elif doc_group.startswith(prefix):
+            doc['group'] = f'{target_name}/{doc_group[len(prefix):]}'
+    save_library(data)
+    return {'name': target_name, 'parent': parent_name, 'oldName': name}
 
 
 def delete_group(group: str) -> dict:
     normalized = validate_group_name(group, allow_empty=False)
     data = load_library()
-    if any(normalize_group_name(doc.get('group')) == normalized for doc in data.setdefault('documents', [])):
+    if any(is_group_within(doc.get('group'), normalized) for doc in data.setdefault('documents', [])):
         raise ValueError('分组内还有笔记，不能删除')
+    if any(
+        normalize_group_name(item.get('name')) != normalized and is_group_within(item.get('name'), normalized)
+        for item in data.setdefault('groups', [])
+    ):
+        raise ValueError('分组下还有子分组，不能删除')
     groups, index = find_group_entry(data, normalized)
     groups.pop(index)
     save_library(data)
@@ -267,7 +383,7 @@ def find_library_entry(path: str) -> tuple[dict, list[dict], int]:
         raise FileNotFoundError(f'文档不存在：{normalized}')
     entry = docs[index]
     if entry.get('type') == 'main':
-        raise ValueError('主笔记不能删除')
+        raise ValueError('该保留文档不能删除')
     return data, docs, index
 
 
@@ -548,10 +664,9 @@ def create_server(host: str, preferred_port: int, attempts: int = 20) -> tuple[T
 
 def print_startup_banner(url: str) -> None:
     print('=' * 72)
-    print('可编辑笔记网站已启动')
+    print('本地笔记工作台已启动')
     print(f'访问地址: {url}')
     print('抓取与保存位置:')
-    print(f'  Markdown 主笔记: {CONTENT_DIR / "note.md"}')
     print(f'  导入后的 Markdown: {IMPORT_DIR}')
     print(f'  下载的图片资源: {ASSET_DIR}')
     print(f'  文档索引: {LIBRARY_FILE}')
@@ -612,7 +727,7 @@ class Handler(SimpleHTTPRequestHandler):
             if parsed.path == '/api/create-group':
                 length = int(self.headers.get('Content-Length', '0'))
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                result = create_group(payload.get('name'))
+                result = create_group(payload.get('name'), payload.get('parent'))
                 print(f'[group:create] {result["name"]!r}')
                 return self._send_json({'ok': True, **result})
             if parsed.path == '/api/rename-group':
@@ -620,6 +735,12 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
                 result = rename_group(payload.get('oldName'), payload.get('newName'))
                 print(f'[group:rename] {result["oldName"]!r} -> {result["newName"]!r}')
+                return self._send_json({'ok': True, **result})
+            if parsed.path == '/api/update-group-parent':
+                length = int(self.headers.get('Content-Length', '0'))
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                result = update_group_parent(payload.get('name'), payload.get('parent'))
+                print(f'[group:move] {result["oldName"]!r} -> parent {result["parent"]!r}')
                 return self._send_json({'ok': True, **result})
             if parsed.path == '/api/delete-group':
                 length = int(self.headers.get('Content-Length', '0'))

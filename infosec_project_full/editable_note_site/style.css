@@ -238,6 +238,7 @@ body.is-resizing * {
 .doc-group-section {
   display: grid;
   gap: 8px;
+  margin-left: calc(var(--group-level, 0) * 16px);
 }
 
 .doc-group-head {
@@ -245,16 +246,17 @@ body.is-resizing * {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 4px 2px 2px;
+  padding: 8px 10px;
   width: 100%;
-  border: 0;
-  background: transparent;
+  border: 1px solid #e0d7c8;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.96) 0%, rgba(246, 239, 227, 0.92) 100%);
+  border-radius: 12px;
   text-align: left;
 }
 
 .doc-group-head:hover {
-  border: 0;
-  background: transparent;
+  border-color: #c8b99d;
+  background: linear-gradient(180deg, #fffdf8 0%, #f5ecdf 100%);
 }
 
 .doc-group-meta {
@@ -292,6 +294,9 @@ body.is-resizing * {
   display: grid;
   gap: 8px;
   min-height: 8px;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(169, 152, 121, 0.38);
 }
 
 .doc-card,
@@ -300,6 +305,7 @@ body.is-resizing * {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
+  margin-left: calc(var(--group-level, 0) * 12px);
   transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
   text-align: left;
 }

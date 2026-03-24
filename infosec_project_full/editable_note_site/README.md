@@ -1,4 +1,4 @@
-# 可编辑笔记网站
+# 本地笔记工作台
 
 一个面向本地知识库整理的 Markdown 工作台。它支持读取站点内已有文档、抓取网页正文、下载网页图片、将内容转成 Markdown 并保存回本地目录，同时提供搜索、目录导航和阅读/编辑一体化界面。
 
@@ -15,7 +15,6 @@
 
 这是这个项目最关键的落盘位置：
 
-- 主笔记：`content/note.md`
 - 导入后的 Markdown 文档：`content/imports/<slug>.md`
 - 抓取网页时下载的图片：`content/assets/<slug>/`
 - 文档索引：`content/library.json`
@@ -27,7 +26,7 @@
 - 分组信息和组内顺序保存在 `content/library.json` 的 `groups`、`group`、`order` 字段中。
 - 调用 `/api/import-url` 时，服务端会先把网页图片下载到 `content/assets/<slug>/`，即使当前只是“导入到编辑区”，图片目录也可能已经生成。
 - 未保存到文件系统的临时编辑内容会保存在浏览器 `localStorage`，键前缀为 `editable-note-site-cache:`。
-- 站内已经内置一篇面向使用者的引导文档：`content/imports/网站新手引导.md`，并同步保留了一份外部说明：`../信息安全原理_知识点总结.md`。
+- 站内已经内置一篇面向使用者的引导文档：`content/imports/新手引导.md`，并同步保留了一份外部说明：`../新手引导.md`。
 
 ## 3. 目录结构
 
@@ -44,13 +43,12 @@ editable_note_site/
 ├── 启动网站.bat                # 兼容入口，内部跳转到 begin.bat
 ├── requirements.txt            # Python 依赖
 ├── content/
-│   ├── note.md                 # 主笔记
 │   ├── library.json            # 文档索引
 │   ├── imports/                # 导入后的 Markdown
 │   └── assets/                 # 导入网页时下载的图片
 └── scripts/
     ├── server.py               # 本地 HTTP 服务 + 导入/保存 API
-    ├── fetch_note.py           # 拉取远端主笔记
+    ├── fetch_note.py           # 旧版兼容抓取脚本
     ├── fetch_assets.py         # 拉取远端图片资源
     └── fetch_all.py            # 批量执行抓取脚本
 ```
@@ -108,10 +106,9 @@ http://127.0.0.1:8000
 `server.py` 启动时会输出类似：
 
 ```text
-可编辑笔记网站已启动
+本地笔记工作台已启动
 访问地址: http://127.0.0.1:8000
 抓取与保存位置:
-  Markdown 主笔记: .../content/note.md
   导入后的 Markdown: .../content/imports
   下载的图片资源: .../content/assets
   文档索引: .../content/library.json
@@ -207,7 +204,6 @@ http://127.0.0.1:8000
 
 限制：
 
-- 主笔记 `content/note.md` 不允许删除
 - 未保存到站点的临时导入内容不允许删除
 
 ### `POST /api/update-document-meta`
@@ -280,10 +276,10 @@ http://127.0.0.1:8000
 
 - 顶部 `笔记树` 按钮用于展开树形导航
 - 树内支持分组折叠、拖拽排序、移动分组、新建/重命名/删除空分组
-- 站内提供 `网站新手引导` 文档，专门说明这个网站的用途和使用方式
-- 非法操作会直接弹窗提示，例如非法网址、非法分组名、删除主笔记、删除非空分组等
+- 站内提供 `新手引导` 文档，专门说明这个网站的用途和使用方式
+- 非法操作会直接弹窗提示，例如非法网址、非法分组名、删除未保存文档、删除非空分组等
 
-如果是技术同事接手项目，打开站点后先看 `网站新手引导`，再通过 `笔记树` 管理文档，会比直接读源码更快进入状态。
+如果是技术同事接手项目，打开站点后先看 `新手引导`，再通过 `笔记树` 管理文档，会比直接读源码更快进入状态。
 
 ## 9. 静态模式 vs 本地服务模式
 

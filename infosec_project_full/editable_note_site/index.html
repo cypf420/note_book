@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>信息安全原理笔记工作台</title>
+  <title>本地笔记工作台</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/turndown/dist/turndown.js"></script>
@@ -12,7 +12,7 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <h1>信息安全原理笔记工作台</h1>
+      <h1>本地笔记工作台</h1>
       <p>支持树形分组、网页智能导入、阅读主题切换，以及 Markdown / 所见即所得一体化编辑。</p>
     </div>
     <div class="top-actions">
@@ -37,7 +37,7 @@
     <div class="tree-drawer-header">
       <div>
         <div class="panel-title">笔记树</div>
-        <div class="hint">参考树形导航方式组织分组和文档；可以折叠、拖拽、重命名和删除空分组。</div>
+        <div class="hint">参考树形导航方式组织分组、子分组和文档；可以折叠、拖拽、重命名和删除空叶子分组。</div>
       </div>
       <button id="closeTreeDrawerBtn" class="ghost-btn">关闭笔记树</button>
     </div>
@@ -71,18 +71,21 @@
         <div class="panel-title">分组管理</div>
         <label class="field-label" for="manageGroupSelect">选择要管理的分组</label>
         <select id="manageGroupSelect"></select>
+        <label class="field-label" for="parentGroupSelect">上级分组</label>
+        <select id="parentGroupSelect"></select>
         <label class="field-label" for="newGroupInput">新建 / 重命名分组名</label>
         <input id="newGroupInput" type="text" placeholder="例如 期末复习 / 论文阅读 / 已归档" />
         <div class="mini-actions">
           <button id="createGroupBtn">新建分组</button>
           <button id="renameGroupBtn">重命名分组</button>
+          <button id="updateGroupParentBtn">保存层级</button>
           <button id="deleteGroupBtn" class="danger-btn">删除空分组</button>
         </div>
-        <div id="groupManageHint" class="hint">只有空分组可以删除；重命名会同步更新该分组下全部笔记。</div>
+        <div id="groupManageHint" class="hint">支持在分组里继续新建子分组；只有空叶子分组可以删除。</div>
       </div>
       <div class="tree-drawer-block tree-drawer-block-full">
         <div class="panel-title">树形导航</div>
-        <div class="hint">单击文档节点可打开，拖拽文档节点可调整顺序或移动到其他分组。</div>
+        <div class="hint">单击文档节点可打开，拖拽文档节点可在任意层级分组之间调整顺序或移动位置。</div>
         <div id="docList" class="doc-list tree-view" role="tree" aria-label="笔记树导航"></div>
       </div>
     </div>

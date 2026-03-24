@@ -55,9 +55,11 @@ const moveDocUpBtn = document.getElementById('moveDocUpBtn');
 const moveDocDownBtn = document.getElementById('moveDocDownBtn');
 const groupMetaText = document.getElementById('groupMetaText');
 const manageGroupSelect = document.getElementById('manageGroupSelect');
+const parentGroupSelect = document.getElementById('parentGroupSelect');
 const newGroupInput = document.getElementById('newGroupInput');
 const createGroupBtn = document.getElementById('createGroupBtn');
 const renameGroupBtn = document.getElementById('renameGroupBtn');
+const updateGroupParentBtn = document.getElementById('updateGroupParentBtn');
 const deleteGroupBtn = document.getElementById('deleteGroupBtn');
 const groupManageHint = document.getElementById('groupManageHint');
 
@@ -114,7 +116,7 @@ function showRequestError(prefix, err) {
 }
 
 function looksLikeIllegalAction(message) {
-  return /分组名|请先|不能删除|不正确|只允许|非法|为空|group name|not allowed|only http|cannot be empty|forbidden|is not empty/.test((message || '').toLowerCase());
+  return /分组名|请先|不能删除|不正确|只允许|非法|为空|层级|子分组|同名|位置|group name|not allowed|only http|cannot be empty|forbidden|is not empty/.test((message || '').toLowerCase());
 }
 
 function clamp(value, min, max) {
@@ -122,15 +124,54 @@ function clamp(value, min, max) {
 }
 
 function normalizeGroupName(group) {
-  return (group || '').trim();
+  const text = (group || '').replace(/\\/g, '/').trim();
+  if (!text) return '';
+  return text.split('/').map(part => part.trim()).filter(Boolean).join('/');
 }
 
 function validateGroupNameOrThrow(group) {
   const normalized = normalizeGroupName(group);
   if (!normalized) throw new Error('分组名不能为空');
-  if (normalized.length > 50) throw new Error('分组名不能超过 50 个字符');
-  if (/[\\/:*?"<>|]/.test(normalized)) throw new Error('分组名不能包含 \\ / : * ? " < > |');
+  if (normalized.startsWith('/') || normalized.endsWith('/') || normalized.includes('//')) {
+    throw new Error('分组层级格式不正确');
+  }
+  const parts = normalized.split('/');
+  for (const part of parts) {
+    if (part.length > 50) throw new Error('每级分组名不能超过 50 个字符');
+    if (/[\\:*?"<>|]/.test(part)) throw new Error('分组名不能包含 \\ : * ? " < > |');
+  }
   return normalized;
+}
+
+function splitGroupName(group) {
+  const normalized = normalizeGroupName(group);
+  return normalized ? normalized.split('/') : [];
+}
+
+function getGroupParentName(group) {
+  const parts = splitGroupName(group);
+  return parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+}
+
+function getGroupLeafName(group) {
+  const parts = splitGroupName(group);
+  return parts.length ? parts[parts.length - 1] : '';
+}
+
+function getGroupDepth(group) {
+  return splitGroupName(group).length;
+}
+
+function isGroupWithin(group, root) {
+  const groupName = normalizeGroupName(group);
+  const rootName = normalizeGroupName(root);
+  if (!rootName) return true;
+  return groupName === rootName || groupName.startsWith(`${rootName}/`);
+}
+
+function formatGroupOptionLabel(group) {
+  const depth = Math.max(0, getGroupDepth(group) - 1);
+  return `${'　'.repeat(depth)}${depth ? '└ ' : ''}${getGroupLeafName(group) || UNGROUPED_LABEL}`;
 }
 
 function validateUrlOrThrow(url) {
@@ -403,9 +444,25 @@ function getVisibleGroups() {
   return [...new Set(visible)];
 }
 
+function getChildGroups(parentGroup = '') {
+  const normalizedParent = normalizeGroupName(parentGroup);
+  return libraryGroups
+    .filter(group => getGroupParentName(group.name) === normalizedParent)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function getGroupSubtreeDocumentCount(group) {
+  const normalized = normalizeGroupName(group);
+  return library.filter(doc => isGroupWithin(getDocGroup(doc), normalized)).length;
+}
+
+function getChildGroupCount(group) {
+  return getChildGroups(group).length;
+}
+
 function getFilteredLibrary() {
   if (currentGroupFilter === ALL_GROUPS_VALUE) return library;
-  return library.filter(doc => getDocGroup(doc) === currentGroupFilter);
+  return library.filter(doc => isGroupWithin(getDocGroup(doc), currentGroupFilter));
 }
 
 function getGroupSiblings(doc) {
@@ -511,7 +568,7 @@ function updateDeleteButtonState() {
   if (!deleteBtn) return;
   const deletable = canDeleteDoc(currentDoc);
   deleteBtn.disabled = !deletable;
-  deleteBtn.title = deletable ? '删除当前导入文档' : '主笔记和未保存导入内容不可删除';
+  deleteBtn.title = deletable ? '删除当前已保存文档' : '未保存导入内容不可删除';
 }
 
 function getPendingGroupValue() {
@@ -538,23 +595,38 @@ function renderGroupSelectors() {
   groupFilterSelect.innerHTML = [
     `<option value="${ALL_GROUPS_VALUE}">全部分组</option>`,
     `<option value="">${UNGROUPED_LABEL}</option>`,
-    ...groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
+    ...groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(formatGroupOptionLabel(group))}</option>`)
   ].join('');
   groupFilterSelect.value = currentGroupFilter;
 
   const selectGroups = currentGroup && !groups.includes(currentGroup) ? [...groups, currentGroup] : groups;
   currentGroupSelect.innerHTML = [
     `<option value="">${UNGROUPED_LABEL}</option>`,
-    ...selectGroups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
+    ...selectGroups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(formatGroupOptionLabel(group))}</option>`)
   ].join('');
   currentGroupSelect.value = currentGroup;
 
   const managedGroup = getManagedGroupValue();
   manageGroupSelect.innerHTML = [
     `<option value="">选择一个分组</option>`,
-    ...groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`)
+    ...groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(formatGroupOptionLabel(group))}</option>`)
   ].join('');
   manageGroupSelect.value = groups.includes(managedGroup) ? managedGroup : (groups[0] || '');
+
+  const selectedManagedGroup = groups.includes(managedGroup) ? managedGroup : (groups[0] || '');
+  const blockedParents = new Set(
+    selectedManagedGroup
+      ? groups.filter(group => isGroupWithin(group, selectedManagedGroup))
+      : []
+  );
+  parentGroupSelect.innerHTML = [
+    `<option value="">顶层分组</option>`,
+    ...groups
+      .filter(group => !blockedParents.has(group))
+      .map(group => `<option value="${escapeHtml(group)}">${escapeHtml(formatGroupOptionLabel(group))}</option>`)
+  ].join('');
+  const currentParent = getGroupParentName(selectedManagedGroup);
+  parentGroupSelect.value = [...parentGroupSelect.options].some(option => option.value === currentParent) ? currentParent : '';
 }
 
 function updateGroupToolbarState() {
@@ -570,19 +642,25 @@ function updateGroupToolbarState() {
   moveDocUpBtn.disabled = !manageable || index <= 0;
   moveDocDownBtn.disabled = !manageable || index === -1 || index >= siblings.length - 1;
   const managedGroup = getManagedGroupValue();
-  const managedCount = managedGroup ? getGroupDocumentCount(managedGroup) : 0;
+  const managedCount = managedGroup ? getGroupSubtreeDocumentCount(managedGroup) : 0;
+  const childGroupCount = managedGroup ? getChildGroupCount(managedGroup) : 0;
   renameGroupBtn.disabled = !managedGroup;
-  deleteGroupBtn.disabled = !managedGroup || managedCount > 0;
+  updateGroupParentBtn.disabled = !managedGroup;
+  deleteGroupBtn.disabled = !managedGroup || managedCount > 0 || childGroupCount > 0;
   if (managedGroup) {
     if (!newGroupInput.value.trim()) {
-      newGroupInput.value = managedGroup;
+      newGroupInput.value = getGroupLeafName(managedGroup);
     }
-    groupManageHint.textContent = managedCount > 0
-      ? `分组“${managedGroup}”下还有 ${managedCount} 篇笔记，可重命名但不能删除。`
-      : `分组“${managedGroup}”当前为空，可以删除。`;
+    if (managedCount > 0) {
+      groupManageHint.textContent = `分组“${managedGroup}”所在子树下还有 ${managedCount} 篇笔记，可重命名和调整层级，但不能删除。`;
+    } else if (childGroupCount > 0) {
+      groupManageHint.textContent = `分组“${managedGroup}”下还有 ${childGroupCount} 个子分组，清空子分组后才可删除。`;
+    } else {
+      groupManageHint.textContent = `分组“${managedGroup}”当前为空叶子分组，可以删除。`;
+    }
   } else {
     newGroupInput.value = '';
-    groupManageHint.textContent = '只有空分组可以删除；重命名会同步更新该分组下全部笔记。';
+    groupManageHint.textContent = '支持在分组里继续新建子分组；只有空叶子分组可以删除。';
   }
 
   if (!currentDoc) {
@@ -831,35 +909,60 @@ async function fetchJson(url, options = {}) {
 }
 
 function renderLibraryList() {
-  docList.innerHTML = '';
-  const filtered = getFilteredLibrary();
-  const visibleGroups = currentGroupFilter === ALL_GROUPS_VALUE
-    ? getVisibleGroups()
-    : [currentGroupFilter];
-  if (!filtered.length && currentGroupFilter === ALL_GROUPS_VALUE && !visibleGroups.length) {
-    docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
-    docCount.textContent = String(library.length);
-    return;
+  function renderDocCard(doc, targetGroup, level) {
+    const card = document.createElement('div');
+    card.className = 'doc-card';
+    card.dataset.path = doc.path;
+    card.setAttribute('role', 'treeitem');
+    card.setAttribute('aria-level', String(level));
+    card.style.setProperty('--group-level', String(Math.max(0, level - 2)));
+    if (canManageGroup(doc)) {
+      card.draggable = true;
+    }
+    const deletable = canDeleteDoc(doc);
+    card.innerHTML = `
+      <div class="doc-card-head">
+        <button class="doc-open-btn" data-action="open" data-path="${escapeHtml(doc.path)}">
+          <div class="doc-title">${escapeHtml(doc.title || doc.slug)}</div>
+          <div class="doc-meta">${escapeHtml(displayGroupName(doc.group))} · ${escapeHtml(doc.path)} · ${doc.type || 'doc'}</div>
+          <div class="doc-snippet">${escapeHtml((doc.sourceUrl || doc.remoteFallback || '本地文档').slice(0, 100))}</div>
+        </button>
+        ${deletable ? '<button class="doc-delete-btn" data-action="delete" title="删除这篇笔记" aria-label="删除这篇笔记">删除</button>' : ''}
+      </div>
+    `;
+    if (canManageGroup(doc)) {
+      card.addEventListener('dragstart', evt => handleDragStart(evt, doc));
+      card.addEventListener('dragend', handleDragEnd);
+      card.addEventListener('dragover', handleDragOver);
+      card.addEventListener('dragenter', handleDragEnter);
+      card.addEventListener('dragleave', handleDragLeave);
+      card.addEventListener('drop', evt => handleDropToGroup(evt, targetGroup, doc.path));
+    }
+    card.querySelector('[data-action="open"]').addEventListener('click', () => openDocument(doc.path));
+    if (deletable) {
+      card.querySelector('[data-action="delete"]').addEventListener('click', evt => {
+        evt.stopPropagation();
+        deleteDocument(doc);
+      });
+    }
+    return card;
   }
-  const groups = new Map();
-  filtered.forEach(doc => {
-    const key = getDocGroup(doc);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(doc);
-  });
-  visibleGroups.forEach(group => {
-    const docs = groups.get(normalizeGroupName(group)) || [];
+
+  function renderGroupSection(group, docsByGroup, level = 1) {
+    const docs = docsByGroup.get(group) || [];
+    const childGroups = getChildGroups(group).map(item => item.name);
     const section = document.createElement('section');
     section.className = 'doc-group-section';
     section.dataset.group = group;
     section.setAttribute('role', 'treeitem');
-    section.setAttribute('aria-level', '1');
+    section.setAttribute('aria-level', String(level));
+    section.style.setProperty('--group-level', String(Math.max(0, level - 1)));
     const collapsed = isGroupCollapsed(group);
     section.innerHTML = `
       <button class="doc-group-head" data-action="toggle-group" aria-expanded="${String(!collapsed)}">
-        <span class="doc-group-name">${escapeHtml(displayGroupName(group))}</span>
+        <span class="doc-group-name">${escapeHtml(getGroupLeafName(group) || displayGroupName(group))}</span>
         <span class="doc-group-meta">
-          <span class="doc-group-count">${docs.length}</span>
+          <span class="doc-group-count">${getGroupSubtreeDocumentCount(group)}</span>
           <span class="doc-group-chevron">${collapsed ? '展开' : '收起'}</span>
         </span>
       </button>
@@ -872,50 +975,66 @@ function renderLibraryList() {
     body.addEventListener('dragenter', handleDragEnter);
     body.addEventListener('dragleave', handleDragLeave);
     body.addEventListener('drop', evt => handleDropToGroup(evt, group));
-    docs.forEach(doc => {
-      const card = document.createElement('div');
-      card.className = 'doc-card';
-      card.dataset.path = doc.path;
-      card.setAttribute('role', 'treeitem');
-      card.setAttribute('aria-level', '2');
-      if (canManageGroup(doc)) {
-        card.draggable = true;
-      }
-      const deletable = canDeleteDoc(doc);
-      card.innerHTML = `
-        <div class="doc-card-head">
-          <button class="doc-open-btn" data-action="open" data-path="${escapeHtml(doc.path)}">
-            <div class="doc-title">${escapeHtml(doc.title || doc.slug)}</div>
-            <div class="doc-meta">${escapeHtml(displayGroupName(doc.group))} · ${escapeHtml(doc.path)} · ${doc.type || 'doc'}</div>
-            <div class="doc-snippet">${escapeHtml((doc.sourceUrl || doc.remoteFallback || '本地文档').slice(0, 100))}</div>
-          </button>
-          ${deletable ? '<button class="doc-delete-btn" data-action="delete" title="删除这篇笔记" aria-label="删除这篇笔记">删除</button>' : ''}
-        </div>
-      `;
-      if (canManageGroup(doc)) {
-        card.addEventListener('dragstart', evt => handleDragStart(evt, doc));
-        card.addEventListener('dragend', handleDragEnd);
-        card.addEventListener('dragover', handleDragOver);
-        card.addEventListener('dragenter', handleDragEnter);
-        card.addEventListener('dragleave', handleDragLeave);
-        card.addEventListener('drop', evt => handleDropToGroup(evt, group, doc.path));
-      }
-      card.querySelector('[data-action="open"]').addEventListener('click', () => openDocument(doc.path));
-      if (deletable) {
-        card.querySelector('[data-action="delete"]').addEventListener('click', evt => {
-          evt.stopPropagation();
-          deleteDocument(doc);
-        });
-      }
-      body.appendChild(card);
+    childGroups.forEach(childGroup => {
+      body.appendChild(renderGroupSection(childGroup, docsByGroup, level + 1));
     });
-    if (!docs.length) {
+    docs.forEach(doc => {
+      body.appendChild(renderDocCard(doc, group, level + 1));
+    });
+    if (!childGroups.length && !docs.length) {
       const empty = document.createElement('div');
       empty.className = 'empty-search';
       empty.textContent = '这个分组目前还没有笔记，可把文档拖到这里。';
       body.appendChild(empty);
     }
-    docList.appendChild(section);
+    return section;
+  }
+
+  docList.innerHTML = '';
+  const filtered = getFilteredLibrary();
+  const visibleGroups = currentGroupFilter === ALL_GROUPS_VALUE ? getVisibleGroups() : [currentGroupFilter];
+  if (!filtered.length && currentGroupFilter === ALL_GROUPS_VALUE && !visibleGroups.length) {
+    docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
+    docCount.textContent = String(library.length);
+    return;
+  }
+  const docsByGroup = new Map();
+  filtered.forEach(doc => {
+    const key = getDocGroup(doc);
+    if (!docsByGroup.has(key)) docsByGroup.set(key, []);
+    docsByGroup.get(key).push(doc);
+  });
+
+  if (docsByGroup.has('') && currentGroupFilter === ALL_GROUPS_VALUE) {
+    const ungroupedSection = document.createElement('section');
+    ungroupedSection.className = 'doc-group-section';
+    ungroupedSection.dataset.group = '';
+    ungroupedSection.setAttribute('role', 'treeitem');
+    ungroupedSection.setAttribute('aria-level', '1');
+    ungroupedSection.style.setProperty('--group-level', '0');
+    const collapsed = isGroupCollapsed('');
+    ungroupedSection.innerHTML = `
+      <button class="doc-group-head" data-action="toggle-group" aria-expanded="${String(!collapsed)}">
+        <span class="doc-group-name">${escapeHtml(UNGROUPED_LABEL)}</span>
+        <span class="doc-group-meta">
+          <span class="doc-group-count">${docsByGroup.get('').length}</span>
+          <span class="doc-group-chevron">${collapsed ? '展开' : '收起'}</span>
+        </span>
+      </button>
+      <div class="doc-group-body ${collapsed ? 'hidden' : ''}" role="group"></div>
+    `;
+    const header = ungroupedSection.querySelector('[data-action="toggle-group"]');
+    const body = ungroupedSection.querySelector('.doc-group-body');
+    header.addEventListener('click', () => toggleGroupCollapsed(''));
+    docsByGroup.get('').forEach(doc => body.appendChild(renderDocCard(doc, '', 2)));
+    docList.appendChild(ungroupedSection);
+  }
+
+  const rootGroups = currentGroupFilter === ALL_GROUPS_VALUE
+    ? getChildGroups('').map(group => group.name)
+    : [currentGroupFilter];
+  rootGroups.forEach(group => {
+    if (group) docList.appendChild(renderGroupSection(group, docsByGroup, 1));
   });
   if (!docList.children.length) {
     docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
@@ -976,10 +1095,20 @@ function findDocByHash() {
 async function openDocument(path, section = '') {
   const doc = library.find(item => item.path === path) || library[0];
   currentDoc = doc;
-  if (isGroupCollapsed(doc.group)) {
-    collapsedGroups[groupStorageKey(doc.group)] = false;
-    persistCollapsedGroups();
-    renderLibraryList();
+  const groupParts = splitGroupName(doc.group);
+  if (groupParts.length) {
+    let changed = false;
+    for (let i = 1; i <= groupParts.length; i++) {
+      const ancestor = groupParts.slice(0, i).join('/');
+      if (isGroupCollapsed(ancestor)) {
+        collapsedGroups[groupStorageKey(ancestor)] = false;
+        changed = true;
+      }
+    }
+    if (changed) {
+      persistCollapsedGroups();
+      renderLibraryList();
+    }
   }
   docSelect.value = doc.path;
   docTitleInput.value = doc.title || '';
@@ -1082,11 +1211,11 @@ async function updateDocumentMeta(path, meta) {
   });
 }
 
-async function createGroup(name) {
+async function createGroup(name, parent = '') {
   return fetchJson('/api/create-group', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, parent })
   });
 }
 
@@ -1095,6 +1224,14 @@ async function renameGroup(oldName, newName) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ oldName, newName })
+  });
+}
+
+async function updateGroupParent(name, parent = '') {
+  return fetchJson('/api/update-group-parent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, parent })
   });
 }
 
@@ -1107,18 +1244,30 @@ async function deleteGroup(name) {
 }
 
 async function createManagedGroup() {
-  const name = validateGroupNameOrThrow(newGroupInput.value);
-  await createGroup(name);
-  newGroupInput.value = name;
+  const leafName = validateGroupNameOrThrow(newGroupInput.value);
+  if (leafName.includes('/')) {
+    showIllegalAction('新建子分组时，请只输入这一层的名称，不要再包含 /');
+    return;
+  }
+  const parent = normalizeGroupName(parentGroupSelect.value);
+  const fullName = parent ? `${parent}/${leafName}` : leafName;
+  await createGroup(leafName, parent);
+  newGroupInput.value = leafName;
   await loadLibrary();
-  manageGroupSelect.value = name;
+  manageGroupSelect.value = fullName;
   updateGroupToolbarState();
-  setStatus(`已新建分组：${name}`);
+  setStatus(`已新建分组：${fullName}`);
 }
 
 async function renameManagedGroup() {
   const oldName = getManagedGroupValue();
-  const newName = validateGroupNameOrThrow(newGroupInput.value);
+  const leafName = validateGroupNameOrThrow(newGroupInput.value);
+  if (leafName.includes('/')) {
+    showIllegalAction('重命名时，请只输入当前这一层的新名称');
+    return;
+  }
+  const parent = getGroupParentName(oldName);
+  const newName = parent ? `${parent}/${leafName}` : leafName;
   if (!oldName) {
     showIllegalAction('请先选择一个要重命名的分组');
     return;
@@ -1126,11 +1275,33 @@ async function renameManagedGroup() {
   await renameGroup(oldName, newName);
   if (currentGroupFilter === oldName) currentGroupFilter = newName;
   if (currentDoc && getDocGroup(currentDoc) === oldName) currentDoc.group = newName;
-  newGroupInput.value = newName;
+  newGroupInput.value = leafName;
   await loadLibrary();
   manageGroupSelect.value = newName;
   updateGroupToolbarState();
   setStatus(`已重命名分组：${oldName} -> ${newName}`);
+}
+
+async function updateManagedGroupParent() {
+  const name = getManagedGroupValue();
+  if (!name) {
+    showIllegalAction('请先选择一个要调整层级的分组');
+    return;
+  }
+  const parent = normalizeGroupName(parentGroupSelect.value);
+  const result = await updateGroupParent(name, parent);
+  if (currentGroupFilter === name) currentGroupFilter = result.name;
+  if (currentDoc && isGroupWithin(getDocGroup(currentDoc), name)) {
+    const currentGroup = getDocGroup(currentDoc);
+    currentDoc.group = currentGroup === name
+      ? result.name
+      : `${result.name}/${currentGroup.slice(name.length + 1)}`;
+  }
+  await loadLibrary();
+  manageGroupSelect.value = result.name;
+  newGroupInput.value = getGroupLeafName(result.name);
+  updateGroupToolbarState();
+  setStatus(`已调整分组层级：${result.name}`);
 }
 
 async function deleteManagedGroup() {
@@ -1139,8 +1310,14 @@ async function deleteManagedGroup() {
     showIllegalAction('请先选择一个要删除的分组');
     return;
   }
-  if (getGroupDocumentCount(name) > 0) {
-    showIllegalAction('这个分组下还有笔记，不能删除。请先移动或删除这些笔记');
+  const subtreeCount = getGroupSubtreeDocumentCount(name);
+  const childGroupCount = getChildGroupCount(name);
+  if (subtreeCount > 0) {
+    showIllegalAction('这个分组或它的子分组下还有笔记，不能删除。请先移动或删除这些笔记');
+    return;
+  }
+  if (childGroupCount > 0) {
+    showIllegalAction('这个分组下还有子分组，不能删除。请先清空或移动这些子分组');
     return;
   }
   const ok = confirm(`确定删除空分组“${name}”吗？`);
@@ -1193,7 +1370,7 @@ async function moveCurrentDocument(direction) {
 
 async function deleteDocument(doc = currentDoc) {
   if (!canDeleteDoc(doc)) {
-    showIllegalAction('主笔记或未保存的临时导入内容不能删除');
+    showIllegalAction('未保存的临时导入内容不能删除');
     return;
   }
   const ok = confirm(`确定删除《${doc.title || doc.slug}》吗？\n\n将会删除：\n- 文档文件\n- library.json 中的索引\n- content/assets/${doc.slug}/ 资源目录（如果存在）`);
@@ -1353,7 +1530,7 @@ currentGroupSelect.addEventListener('change', () => {
 toggleTreeBtn.addEventListener('click', () => setTreeDrawerOpen(!treeDrawerOpen));
 closeTreeDrawerBtn.addEventListener('click', () => setTreeDrawerOpen(false));
 manageGroupSelect.addEventListener('change', () => {
-  newGroupInput.value = manageGroupSelect.value;
+  newGroupInput.value = getGroupLeafName(manageGroupSelect.value);
   updateGroupToolbarState();
 });
 createGroupBtn.addEventListener('click', async () => {
@@ -1370,6 +1547,14 @@ renameGroupBtn.addEventListener('click', async () => {
   } catch (err) {
     if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
     else showRequestError('重命名分组失败', err);
+  }
+});
+updateGroupParentBtn.addEventListener('click', async () => {
+  try {
+    await updateManagedGroupParent();
+  } catch (err) {
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('调整分组层级失败', err);
   }
 });
 deleteGroupBtn.addEventListener('click', async () => {
