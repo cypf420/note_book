@@ -1,12 +1,18 @@
 @echo off
-setlocal enabledelayedexpansion
-set "SCRIPT_PATH=\scripts\server.py"
+setlocal
+cd /d "%~dp0"
 
-rem 查找正在运行的 server.py 进程并强制终止
-powershell -NoProfile -Command ^
-  "$targets = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match 'scripts[\\/]+server\\.py' }; ^
-   if (-not $targets) { Write-Host '没有检测到运行中的 服务端 (scripts\\server.py)。'; exit 1 }; ^
-   foreach ($proc in $targets) { Write-Host ('终止进程: {0} (PID {1})' -f $proc.Name, $proc.ProcessId); Stop-Process -Id $proc.ProcessId -Force }; ^
-   Write-Host '服务端已停止。'"
+where py >nul 2>nul
+if %errorlevel%==0 (
+  py -3 "%~dp0scripts\stop_server.py"
+  exit /b %errorlevel%
+)
 
-endlocal
+where python >nul 2>nul
+if %errorlevel%==0 (
+  python "%~dp0scripts\stop_server.py"
+  exit /b %errorlevel%
+)
+
+echo [ERROR] Python was not found, so stop.bat cannot stop the local server.
+exit /b 1

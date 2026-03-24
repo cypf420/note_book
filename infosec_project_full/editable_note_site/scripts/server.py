@@ -19,6 +19,8 @@ CONTENT_DIR = ROOT / 'content'
 IMPORT_DIR = CONTENT_DIR / 'imports'
 ASSET_DIR = CONTENT_DIR / 'assets'
 LIBRARY_FILE = CONTENT_DIR / 'library.json'
+RUNTIME_DIR = ROOT / 'runtime'
+SERVER_STATE_FILE = RUNTIME_DIR / 'server-state.json'
 HEADERS = {'User-Agent': 'EditableNoteSite/3.0 (+https://127.0.0.1)'}
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
@@ -37,6 +39,7 @@ def ensure_dirs() -> None:
     CONTENT_DIR.mkdir(exist_ok=True)
     IMPORT_DIR.mkdir(parents=True, exist_ok=True)
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     (IMPORT_DIR / '.gitkeep').touch()
     (ASSET_DIR / '.gitkeep').touch()
     if not LIBRARY_FILE.exists():
@@ -674,6 +677,25 @@ def print_startup_banner(url: str) -> None:
     print('=' * 72)
 
 
+def write_server_state(url: str, port: int) -> None:
+    ensure_dirs()
+    SERVER_STATE_FILE.write_text(json.dumps({
+        'pid': os.getpid(),
+        'port': port,
+        'url': url,
+        'root': str(ROOT),
+        'script': str(Path(__file__).resolve())
+    }, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def clear_server_state() -> None:
+    try:
+        if SERVER_STATE_FILE.exists():
+            SERVER_STATE_FILE.unlink()
+    except OSError:
+        pass
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -780,6 +802,7 @@ def main():
     server, port = create_server(host, preferred_port)
     browser_host = '127.0.0.1' if host in {'0.0.0.0', '::'} else host
     url = f'http://{browser_host}:{port}'
+    write_server_state(url, port)
     print_startup_banner(url)
     if port != preferred_port:
         print(f'[提示] 端口 {preferred_port} 已占用，已自动切换到 {port}')
@@ -794,6 +817,7 @@ def main():
         print('\nShutting down...')
     finally:
         server.server_close()
+        clear_server_state()
 
 
 if __name__ == '__main__':

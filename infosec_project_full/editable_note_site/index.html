@@ -21,8 +21,6 @@
       <button id="toggleFocusBtn">专注模式</button>
       <button id="toggleTreeBtn">笔记树</button>
       <button id="newBlankBtn">新建空白文档</button>
-      <button id="toggleLeftSidebarBtn">收起左栏</button>
-      <button id="toggleRightSidebarBtn">收起右栏</button>
       <button id="toggleRichBtn">切换到所见即所得</button>
       <button id="editToggleBtn">编辑当前文档</button>
       <button id="reloadBtn">恢复原始内容</button>
@@ -92,8 +90,16 @@
   </section>
 
   <main class="app-grid">
+    <button id="toggleLeftSidebarBtn" class="panel-edge-toggle panel-edge-toggle-left" aria-label="收起左侧栏" aria-expanded="true">‹</button>
+    <button id="toggleRightSidebarBtn" class="panel-edge-toggle panel-edge-toggle-right" aria-label="收起右侧栏" aria-expanded="true">›</button>
+
     <aside id="sidebarPanel" class="panel sidebar">
-      <div class="panel-title">站点导航</div>
+      <div class="panel-shell-head">
+        <div>
+          <div class="panel-title">站点导航</div>
+          <div class="panel-kicker">检索、导入与文档管理</div>
+        </div>
+      </div>
 
       <div class="sidebar-section">
         <label class="field-label" for="searchInput">全文搜索</label>
@@ -184,10 +190,76 @@
           <div class="editor-head">
             <div>
               <strong>Markdown 源码编辑</strong>
-              <span class="hint">Ctrl / Cmd + S 保存，Esc 退出编辑</span>
+              <span class="hint">Ctrl / Cmd + S 保存，Esc 退出编辑；所见即所得模式也支持直接输入常用 Markdown 快捷语法</span>
             </div>
             <button id="closeEditorBtn" class="ghost-btn">关闭编辑器</button>
           </div>
+          <details class="markdown-cheatsheet">
+            <summary>Markdown 快捷语法</summary>
+            <div class="cheatsheet-grid">
+              <section class="cheatsheet-card">
+                <h4>标题</h4>
+                <pre><code># H1
+## H2
+### H3</code></pre>
+              </section>
+              <section class="cheatsheet-card">
+                <h4>文本样式</h4>
+                <pre><code>**粗体**  __粗体__
+*斜体*    _斜体_
+~~删除线~~
+`行内代码`</code></pre>
+              </section>
+              <section class="cheatsheet-card">
+                <h4>列表</h4>
+                <pre><code>- 无序列表
+* 也可以
++ 也可以
+
+1. 有序列表
+2. 自动编号</code></pre>
+              </section>
+              <section class="cheatsheet-card">
+                <h4>链接与图片</h4>
+                <pre><code>[链接文字](https://url.com)
+![图片alt](image.png)</code></pre>
+              </section>
+              <section class="cheatsheet-card">
+                <h4>引用与分割线</h4>
+                <pre><code>&gt; 引用文字
+&gt; &gt; 嵌套引用
+
+---</code></pre>
+              </section>
+              <section class="cheatsheet-card">
+                <h4>代码块</h4>
+                <pre><code>```python
+print("指定语言高亮")
+```</code></pre>
+              </section>
+              <section class="cheatsheet-card">
+                <h4>表格</h4>
+                <pre><code>| 列1 | 列2 | 列3 |
+|-----|:---:|----:|
+| 左对齐 | 居中 | 右对齐 |</code></pre>
+              </section>
+              <section class="cheatsheet-card">
+                <h4>任务列表</h4>
+                <pre><code>- [x] 已完成
+- [ ] 未完成</code></pre>
+              </section>
+              <section class="cheatsheet-card cheatsheet-card-wide">
+                <h4>其他</h4>
+                <pre><code>脚注：文字[^1]
+[^1]: 脚注内容
+
+行内HTML：&lt;br&gt; &lt;kbd&gt;Ctrl&lt;/kbd&gt;
+
+转义：\*不渲染为斜体\*</code></pre>
+                <p class="hint">不同平台对脚注、任务列表等扩展语法的支持程度不同，CommonMark 兼容性最广。</p>
+              </section>
+            </div>
+          </details>
           <textarea id="editor" spellcheck="false"></textarea>
         </div>
       </div>
@@ -196,7 +268,12 @@
     <div id="rightResizer" class="panel-resizer" role="separator" aria-orientation="vertical" aria-label="调整右侧栏宽度"></div>
 
     <aside id="tocPanel" class="panel toc-panel">
-      <div class="panel-title">当前目录</div>
+      <div class="panel-shell-head">
+        <div>
+          <div class="panel-title">当前目录</div>
+          <div class="panel-kicker">章节跳转与部署提示</div>
+        </div>
+      </div>
       <nav id="tocList" class="toc-list"></nav>
       <div class="panel-title secondary-title">部署与使用</div>
       <ul class="compact-list">

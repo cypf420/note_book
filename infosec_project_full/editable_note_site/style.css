@@ -141,11 +141,23 @@ input, select { width: 100%; padding: 10px 12px; }
   align-items: center;
 }
 
+.top-actions {
+  justify-content: flex-end;
+  max-width: 1080px;
+}
+
+.top-actions button {
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
 .app-grid {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, var(--left-panel-width)) var(--resizer-width) minmax(0, 1fr) var(--resizer-width) minmax(0, var(--right-panel-width));
   gap: 16px;
-  padding: 16px;
+  padding: 28px 16px 16px;
   min-height: calc(100vh - 98px);
   transition: grid-template-columns .25s ease;
   align-items: stretch;
@@ -169,6 +181,45 @@ input, select { width: 100%; padding: 10px 12px; }
   overflow: auto;
   background: linear-gradient(180deg, #fffcf8, #f8f3eb);
   min-width: 0;
+}
+
+.panel-shell-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(189, 176, 150, 0.54);
+}
+
+.panel-kicker {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.panel-edge-toggle {
+  position: absolute;
+  top: 8px;
+  z-index: 18;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.96);
+  border: 1px solid rgba(188, 173, 146, 0.88);
+  box-shadow: 0 10px 22px rgba(26, 26, 26, 0.08);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.panel-edge-toggle-left {
+  left: calc(16px + var(--left-panel-width) - 18px);
+}
+
+.panel-edge-toggle-right {
+  right: calc(16px + var(--right-panel-width) - 18px);
 }
 
 .workspace {
@@ -542,6 +593,17 @@ body.is-resizing * {
 
 .tab-title { color: #3f3a32; font-weight: 800; margin-bottom: 8px; }
 
+.task-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-item-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+
 .editor-drawer {
   position: absolute;
   top: 0;
@@ -554,6 +616,7 @@ body.is-resizing * {
   flex-direction: column;
   transform: translateX(0);
   transition: transform .22s ease, opacity .22s ease;
+  overflow: hidden;
   opacity: 1;
   z-index: 12;
 }
@@ -571,6 +634,71 @@ body.is-resizing * {
   align-items: center;
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+.markdown-cheatsheet {
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 252, 247, 0.85);
+}
+
+.markdown-cheatsheet summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 16px;
+  font-weight: 800;
+  color: #2e2a23;
+}
+
+.markdown-cheatsheet summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-cheatsheet summary::after {
+  content: "展开";
+  float: right;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.markdown-cheatsheet[open] summary::after {
+  content: "收起";
+}
+
+.cheatsheet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 16px 16px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.cheatsheet-card {
+  border: 1px solid rgba(191, 177, 150, 0.58);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.cheatsheet-card-wide {
+  grid-column: 1 / -1;
+}
+
+.cheatsheet-card h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.cheatsheet-card pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f5efe5;
+  border: 1px solid #ddd1bd;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 #editor {
@@ -623,6 +751,15 @@ body.is-resizing * {
   font-size: 13px;
 }
 
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid #cdbfa8;
+  background: #f8f3ea;
+  font-size: .92em;
+}
+
 mark {
   background: #fff0b8;
   color: #2b2417;
@@ -657,6 +794,11 @@ body.focus-mode #rightResizer {
   pointer-events: none;
 }
 
+body.focus-mode .panel-edge-toggle {
+  opacity: 0;
+  pointer-events: none;
+}
+
 @keyframes fadeIn {
   from { opacity: .55; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
@@ -666,8 +808,16 @@ body.left-collapsed .app-grid {
   grid-template-columns: 0 0 minmax(0, 1fr) var(--resizer-width) minmax(0, var(--right-panel-width));
 }
 
+body.left-collapsed .panel-edge-toggle-left {
+  left: 8px;
+}
+
 body.right-collapsed .app-grid {
   grid-template-columns: minmax(0, var(--left-panel-width)) var(--resizer-width) minmax(0, 1fr) 0 0;
+}
+
+body.right-collapsed .panel-edge-toggle-right {
+  right: 8px;
 }
 
 body.left-collapsed.right-collapsed .app-grid {
@@ -746,6 +896,14 @@ body.theme-dark .doc-shell {
   background: linear-gradient(180deg, #181d24 0%, #131920 100%);
 }
 
+body.theme-dark .top-actions button,
+body.theme-dark .panel-edge-toggle,
+body.theme-dark .markdown-cheatsheet,
+body.theme-dark .cheatsheet-card {
+  background: rgba(24, 29, 36, 0.95);
+  border-color: #364253;
+}
+
 body.theme-dark .tree-drawer-header,
 body.theme-dark .tree-drawer-block,
 body.theme-dark .panel-resizer,
@@ -768,7 +926,16 @@ body.theme-dark .toc-list a,
 body.theme-dark .field-label,
 body.theme-dark .doc-group-name,
 body.theme-dark .doc-group-chevron,
-body.theme-dark .doc-group-count {
+body.theme-dark .doc-group-count,
+body.theme-dark .panel-kicker,
+body.theme-dark .markdown-cheatsheet summary {
+  color: var(--text);
+}
+
+body.theme-dark .cheatsheet-card pre,
+body.theme-dark kbd {
+  background: #1d2430;
+  border-color: #364253;
   color: var(--text);
 }
 
@@ -794,12 +961,18 @@ body.theme-dark .status-error { color: #ff9c9c !important; }
 
   .topbar,
   .workspace-toolbar { flex-direction: column; }
-  .app-grid { grid-template-columns: 1fr; }
+  .app-grid {
+    grid-template-columns: 1fr;
+    padding-top: 56px;
+  }
   .panel-resizer { display: none; }
   .sidebar,
   .workspace,
   .toc-panel { grid-column: 1; }
   .editor-drawer { width: 100%; }
+  .panel-edge-toggle-left { left: 16px; }
+  .panel-edge-toggle-right { right: 16px; }
+  .cheatsheet-grid { grid-template-columns: 1fr; }
   .doc-shell { height: auto; min-height: 60vh; }
   .rich-toolbar { padding: 10px 14px; }
   .markdown-body { padding: 26px 18px 80px; font-size: 17px; }
