@@ -19,6 +19,8 @@ IMPORT_DIR = CONTENT_DIR / 'imports'
 ASSET_DIR = CONTENT_DIR / 'assets'
 LIBRARY_FILE = CONTENT_DIR / 'library.json'
 HEADERS = {'User-Agent': 'EditableNoteSite/3.0 (+https://127.0.0.1)'}
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
 
 
 def slugify(text: str) -> str:
@@ -75,34 +77,126 @@ def update_library_entry(path: str, title: str, slug: str, doc_type: str, source
     save_library(data)
 
 
-def extract_main_html(url: str) -> tuple[str, str]:
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    title = soup.title.string.strip() if soup.title and soup.title.string else urlparse(url).netloc
-    for tag in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
-        tag.decompose()
-    candidates = [
+def fetch_url_text(url: str) -> requests.Response:
+    return SESSION.get(url, timeout=35, allow_redirects=True)
+
+
+def _class_hint_score(tag) -> int:
+    attrs = ' '.join([
+        ' '.join(tag.get('class', [])),
+        tag.get('id', ''),
+        tag.get('role', ''),
+        tag.get('itemprop', '')
+    ]).lower()
+    pos = ['article', 'content', 'post', 'entry', 'main', 'markdown', 'body', 'detail']
+    neg = ['nav', 'footer', 'header', 'sidebar', 'menu', 'comment', 'related', 'recommend', 'ads', 'advert']
+    return sum(16 for k in pos if k in attrs) - sum(14 for k in neg if k in attrs)
+
+
+def _candidate_score(tag) -> float:
+    text_len = len(tag.get_text(' ', strip=True))
+    if text_len < 160:
+        return -1
+    p_count = len(tag.find_all('p'))
+    heading_count = len(tag.find_all(re.compile(r'^h[1-4]$')))
+    img_count = len(tag.find_all('img'))
+    link_text = sum(len(a.get_text(' ', strip=True)) for a in tag.find_all('a'))
+    link_density = (link_text / max(text_len, 1))
+    score = (text_len * 0.7) + (p_count * 36) + (heading_count * 26) + (img_count * 10)
+    score += _class_hint_score(tag)
+    score -= link_density * 260
+    return score
+
+
+def _pick_content_container(soup: BeautifulSoup):
+    direct = [
         soup.find('article'),
         soup.find('main'),
+        soup.select_one('[role="main"]'),
         soup.select_one('.markdown-body'),
-        soup.select_one('.content'),
+        soup.select_one('.post-content'),
+        soup.select_one('.article-content'),
         soup.select_one('#content'),
-        soup.body,
+        soup.select_one('#main-content')
     ]
-    container = next((c for c in candidates if c is not None), soup)
-    for node in container.find_all(['nav', 'footer', 'header', 'aside']):
+    direct = [node for node in direct if node is not None]
+    if direct:
+        best_direct = max(direct, key=_candidate_score)
+        if _candidate_score(best_direct) > 120:
+            return best_direct
+    candidates = soup.find_all(['article', 'main', 'section', 'div'])
+    best = None
+    best_score = -1.0
+    for node in candidates:
+        score = _candidate_score(node)
+        if score > best_score:
+            best_score = score
+            best = node
+    return best if best is not None else soup.body or soup
+
+
+def extract_main_html(url: str, html_text: str | None = None) -> tuple[str, str]:
+    if html_text is None:
+        resp = fetch_url_text(url)
+        resp.raise_for_status()
+        if not resp.encoding:
+            resp.encoding = resp.apparent_encoding or 'utf-8'
+        html_text = resp.text
+    soup = BeautifulSoup(html_text, 'html.parser')
+    meta_title = soup.find('meta', attrs={'property': 'og:title'})
+    page_title = (meta_title.get('content') or '').strip() if meta_title else ''
+    title = page_title or (soup.title.string.strip() if soup.title and soup.title.string else urlparse(url).netloc)
+    for tag in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
+        tag.decompose()
+    container = _pick_content_container(soup)
+    for node in container.find_all(['nav', 'footer', 'header', 'aside', 'form']):
+        node.decompose()
+    for node in container.select('.advertisement, .ads, .share, .social, .comment, .comments, .recommend, .related'):
         node.decompose()
     return title, str(container)
 
 
-def download_and_rewrite_images(html: str, page_url: str, slug: str) -> str:
+def extract_title_from_markdown(markdown: str, fallback: str) -> str:
+    for line in markdown.splitlines():
+        text = line.strip()
+        if text.startswith('#'):
+            return re.sub(r'^#+\s*', '', text).strip() or fallback
+    return fallback
+
+
+def is_markdown_like(url: str, content_type: str, text: str) -> bool:
+    if urlparse(url).path.lower().endswith(('.md', '.markdown', '.mdown')):
+        return True
+    ctype = (content_type or '').lower()
+    if 'markdown' in ctype:
+        return True
+    sample = text[:3000]
+    has_html_structure = bool(re.search(r'<(html|head|body|article|main|div|section)\b', sample, re.I))
+    has_md_structure = bool(re.search(r'(^|\n)\s{0,3}(#{1,6}\s+|[-*+]\s+|\d+\.\s+|```)', sample))
+    return has_md_structure and not has_html_structure
+
+
+def is_plain_text_like(content_type: str, text: str) -> bool:
+    ctype = (content_type or '').lower()
+    if 'text/plain' not in ctype:
+        return False
+    sample = text[:3000]
+    has_html_structure = bool(re.search(r'<(html|head|body|article|main|div|section)\b', sample, re.I))
+    return not has_html_structure
+
+
+def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[str, dict]:
     soup = BeautifulSoup(html, 'html.parser')
     target_dir = ASSET_DIR / slug
     target_dir.mkdir(parents=True, exist_ok=True)
+    total = 0
+    downloaded = 0
+    failed = 0
     for index, img in enumerate(soup.find_all('img'), start=1):
+        total += 1
         src = img.get('src')
         if not src:
+            failed += 1
             continue
         img_url = urljoin(page_url, src)
         parsed = urlparse(img_url)
@@ -115,15 +209,57 @@ def download_and_rewrite_images(html: str, page_url: str, slug: str) -> str:
             with open(local_path, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
             img['src'] = f'./content/assets/{slug}/{filename}'
+            downloaded += 1
         except Exception:
             img['src'] = img_url
-    return str(soup)
+            failed += 1
+    return str(soup), {'total': total, 'downloaded': downloaded, 'failed': failed}
 
 
 def html_to_markdown(html: str, title: str) -> str:
     body = md(html, heading_style='ATX')
     body = re.sub(r'\n{3,}', '\n\n', body).strip()
     return f'---\ntitle: {title}\n---\n\n{body}\n'
+
+
+def normalize_markdown(markdown: str, title: str) -> str:
+    body = markdown.strip()
+    if body.startswith('---'):
+        return body + '\n'
+    return f'---\ntitle: {title}\n---\n\n{body}\n'
+
+
+def plain_text_to_markdown(text: str, title: str) -> str:
+    body = text.strip()
+    body = re.sub(r'\n{3,}', '\n\n', body)
+    if not body:
+        body = '(empty)'
+    return f'---\ntitle: {title}\n---\n\n{body}\n'
+
+
+def import_url_to_markdown(url: str) -> tuple[str, str, str, dict]:
+    resp = fetch_url_text(url)
+    resp.raise_for_status()
+    if not resp.encoding:
+        resp.encoding = resp.apparent_encoding or 'utf-8'
+    ctype = resp.headers.get('Content-Type', '')
+    text = resp.text
+    if is_markdown_like(url, ctype, text):
+        fallback = Path(urlparse(url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(url).netloc
+        title = extract_title_from_markdown(text, fallback)
+        slug = slugify(title)
+        return title, slug, normalize_markdown(text, title), {'detectedType': 'markdown', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
+    if is_plain_text_like(ctype, text):
+        fallback = Path(urlparse(url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(url).netloc
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), fallback)
+        title = first_line[:80] if first_line else fallback
+        slug = slugify(title)
+        return title, slug, plain_text_to_markdown(text, title), {'detectedType': 'text', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
+    title, html = extract_main_html(url, text)
+    slug = slugify(title)
+    html, image_stats = download_and_rewrite_images(html, url, slug)
+    markdown = html_to_markdown(html, title)
+    return title, slug, markdown, {'detectedType': 'html', 'images': image_stats}
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -147,11 +283,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({'error': 'missing url'}, 400)
             try:
                 ensure_dirs()
-                title, html = extract_main_html(url)
-                slug = slugify(title)
-                html = download_and_rewrite_images(html, url, slug)
-                markdown = html_to_markdown(html, title)
-                return self._send_json({'title': title, 'slug': slug, 'markdown': markdown})
+                title, slug, markdown, meta = import_url_to_markdown(url)
+                return self._send_json({'title': title, 'slug': slug, 'markdown': markdown, 'meta': meta})
             except Exception as exc:
                 return self._send_json({'error': str(exc)}, 500)
         if parsed.path == '/api/library':

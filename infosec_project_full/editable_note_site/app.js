@@ -13,6 +13,10 @@ const importPreviewBtn = document.getElementById('importPreviewBtn');
 const importSaveBtn = document.getElementById('importSaveBtn');
 const refreshLibraryBtn = document.getElementById('refreshLibraryBtn');
 const editToggleBtn = document.getElementById('editToggleBtn');
+const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+const toggleRichBtn = document.getElementById('toggleRichBtn');
+const toggleThemeBtn = document.getElementById('toggleThemeBtn');
+const toggleWidthBtn = document.getElementById('toggleWidthBtn');
 const closeEditorBtn = document.getElementById('closeEditorBtn');
 const toggleTocBtn = document.getElementById('toggleTocBtn');
 const docSelect = document.getElementById('docSelect');
@@ -32,18 +36,59 @@ const docPath = document.getElementById('docPath');
 const modeText = document.getElementById('modeText');
 const permalink = document.getElementById('permalink');
 const editorDrawer = document.getElementById('editorDrawer');
+const richToolbar = document.getElementById('richToolbar');
 
 let library = [];
 let searchIndex = [];
 let currentDoc = null;
 let originalContent = '';
 let tocVisible = true;
+let sidebarCollapsed = false;
+let richMode = false;
+let darkTheme = false;
+let readingDensity = 'standard';
+let searchTimer = null;
+let searchBuildToken = 0;
+const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
 
 marked.setOptions({ breaks: true, gfm: true });
 
 function setStatus(text, isError = false) {
   statusText.textContent = text;
-  statusText.style.color = isError ? '#ff8da1' : '#d9e5f3';
+  statusText.classList.toggle('status-error', !!isError);
+  statusText.classList.toggle('status-ok', !isError);
+}
+
+function applyTheme(isDark) {
+  darkTheme = !!isDark;
+  document.body.classList.toggle('theme-dark', darkTheme);
+  toggleThemeBtn.textContent = darkTheme ? '切换浅色报刊' : '切换夜间雅黑';
+  localStorage.setItem('editable-note-site:theme', darkTheme ? 'dark' : 'light');
+}
+
+function applyReadingDensity(mode) {
+  const next = ['compact', 'standard', 'wide'].includes(mode) ? mode : 'standard';
+  readingDensity = next;
+  document.body.classList.remove('density-compact', 'density-wide');
+  if (next === 'compact') document.body.classList.add('density-compact');
+  if (next === 'wide') document.body.classList.add('density-wide');
+  if (toggleWidthBtn) {
+    const labelMap = {
+      compact: '阅读宽度：专栏窄栏',
+      standard: '阅读宽度：标准',
+      wide: '阅读宽度：沉浸宽幅'
+    };
+    toggleWidthBtn.textContent = labelMap[next];
+  }
+  localStorage.setItem('editable-note-site:reading-density', next);
+}
+
+function cycleReadingDensity() {
+  const order = ['compact', 'standard', 'wide'];
+  const idx = order.indexOf(readingDensity);
+  const next = order[(idx + 1) % order.length];
+  applyReadingDensity(next);
+  setStatus(`已切换阅读宽度：${next === 'compact' ? '专栏窄栏' : next === 'wide' ? '沉浸宽幅' : '标准宽度'}`);
 }
 
 function slugify(text) {
@@ -207,10 +252,10 @@ function buildTOC() {
   });
 }
 
-function render() {
+function render(renderAnchors = true) {
   const processed = preprocess(editor.value);
   preview.innerHTML = marked.parse(processed);
-  attachAnchorIds();
+  if (renderAnchors) attachAnchorIds();
   buildTOC();
   localStorage.setItem(currentCacheKey(), editor.value);
   if (window.MathJax?.typesetPromise) {
@@ -218,10 +263,133 @@ function render() {
   }
 }
 
+function htmlToMarkdown(html) {
+  if (turndownService) {
+    return turndownService.turndown(html || '').trim();
+  }
+  return editor.value;
+}
+
+function execRichCommand(cmd, value = null) {
+  if (typeof document.execCommand === 'function') {
+    return document.execCommand(cmd, false, value);
+  }
+  if (cmd === 'insertHTML' && value) {
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount) return false;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    range.insertNode(range.createContextualFragment(value));
+    return true;
+  }
+  return false;
+}
+
+function findEditableBlock(node) {
+  if (!node) return null;
+  if (node.nodeType === Node.TEXT_NODE) return findEditableBlock(node.parentElement);
+  if (!(node instanceof Element)) return null;
+  return node.closest('p, div, li, blockquote, h1, h2, h3, h4, h5, h6');
+}
+
+function readBlockPrefix(block, selection) {
+  if (!block || !selection || !selection.rangeCount) return '';
+  const range = selection.getRangeAt(0);
+  const prefixRange = range.cloneRange();
+  prefixRange.setStart(block, 0);
+  return prefixRange.toString();
+}
+
+function resetBlockPrefix(block, range) {
+  if (!block || !range) return;
+  const resetRange = range.cloneRange();
+  resetRange.setStart(block, 0);
+  resetRange.deleteContents();
+}
+
+function applyRichMarkdownShortcut(event) {
+  if (!richMode) return false;
+  const isTrigger = event.key === ' ' || event.key === 'Enter';
+  if (!isTrigger) return false;
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount || !selection.isCollapsed) return false;
+  const range = selection.getRangeAt(0);
+  const block = findEditableBlock(range.startContainer);
+  if (!block || !preview.contains(block)) return false;
+  const prefix = readBlockPrefix(block, selection);
+  const trimmed = prefix.trim();
+  let matched = false;
+  const heading = prefix.match(/^(#{1,3})\s$/);
+  if (heading) {
+    event.preventDefault();
+    resetBlockPrefix(block, range);
+    execRichCommand('formatBlock', `h${heading[1].length}`);
+    matched = true;
+  } else if (/^>\s$/.test(prefix)) {
+    event.preventDefault();
+    resetBlockPrefix(block, range);
+    execRichCommand('formatBlock', 'blockquote');
+    matched = true;
+  } else if (/^[-*]\s$/.test(prefix)) {
+    event.preventDefault();
+    resetBlockPrefix(block, range);
+    execRichCommand('insertUnorderedList');
+    matched = true;
+  } else if (/^1\.\s$/.test(prefix)) {
+    event.preventDefault();
+    resetBlockPrefix(block, range);
+    execRichCommand('insertOrderedList');
+    matched = true;
+  } else if (trimmed === '```') {
+    event.preventDefault();
+    resetBlockPrefix(block, range);
+    execRichCommand('insertHTML', '<pre><code>代码</code></pre>');
+    matched = true;
+  }
+  if (matched) {
+    editor.value = htmlToMarkdown(preview.innerHTML);
+    localStorage.setItem(currentCacheKey(), editor.value);
+    buildTOC();
+  }
+  return matched;
+}
+
+function updateRichMode(enabled) {
+  richMode = enabled;
+  document.body.classList.toggle('rich-mode', enabled);
+  richToolbar.classList.toggle('hidden', !enabled);
+  richToolbar.setAttribute('aria-hidden', String(!enabled));
+  preview.setAttribute('contenteditable', enabled ? 'true' : 'false');
+  preview.setAttribute('spellcheck', enabled ? 'true' : 'false');
+  toggleRichBtn.textContent = enabled ? '切换到纯 Markdown' : '切换到所见即所得';
+  modeText.textContent = enabled ? '所见即所得模式（语雀风格）' : (editorDrawer.classList.contains('hidden') ? '阅读模式（源码隐藏）' : '编辑模式（源码显示）');
+  if (enabled) {
+    openEditor(false);
+    render(false);
+    preview.focus();
+  } else {
+    preview.removeAttribute('contenteditable');
+    render(!editorDrawer.classList.contains('hidden'));
+  }
+}
+
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  document.body.classList.toggle('sidebar-collapsed', sidebarCollapsed);
+  toggleSidebarBtn.textContent = sidebarCollapsed ? '展开边栏（退出专注）' : '收起边栏（专注模式）';
+  toggleSidebarBtn.setAttribute('aria-expanded', String(!sidebarCollapsed));
+  if (sidebarCollapsed) {
+    setStatus('已进入专注模式：边栏已收起，笔记占满屏幕');
+  } else {
+    setStatus('已展开边栏');
+  }
+}
+
 function openEditor(force = true) {
+  if (richMode && force) updateRichMode(false);
   editorDrawer.classList.toggle('hidden', !force);
   document.body.classList.toggle('reading-mode', !force);
-  modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
+  if (!richMode) modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
   editToggleBtn.textContent = force ? '返回阅读模式' : '编辑当前文档';
   editorDrawer.setAttribute('aria-hidden', String(!force));
   if (force) setTimeout(() => editor.focus(), 40);
@@ -313,7 +481,7 @@ async function openDocument(path, section = '') {
   const text = await resolveDocContent(doc);
   originalContent = text;
   editor.value = localStorage.getItem(currentCacheKey()) || text;
-  render();
+  render(!richMode);
   docPath.textContent = doc.path;
   permalink.href = hashForDoc(doc);
   permalink.textContent = `#doc=${doc.slug}`;
@@ -366,16 +534,19 @@ async function importUrl(mode) {
   }
   setStatus('正在抓取网址内容，请稍候…');
   const data = await fetchJson(`/api/import-url?url=${encodeURIComponent(url)}`);
+  const meta = data.meta || {};
+  const imageStats = meta.images || { total: 0, downloaded: 0, failed: 0 };
+  const importSummary = `类型: ${meta.detectedType || 'unknown'}；图片 ${imageStats.downloaded}/${imageStats.total}${imageStats.failed ? `，失败 ${imageStats.failed}` : ''}`;
   docTitleInput.value = data.title || docTitleInput.value;
   docSlugInput.value = slugify(data.slug || data.title || 'imported');
   if (mode === 'preview') {
     currentDoc = { path: '__adhoc__', title: data.title || '网址导入', slug: slugify(data.slug || data.title || 'imported'), type: 'adhoc' };
     originalContent = data.markdown;
     editor.value = data.markdown;
-    render();
+    render(!richMode);
     openEditor(true);
     docPath.textContent = 'adhoc / 未保存导入';
-    setStatus(`已导入到编辑区：${data.title}`);
+    setStatus(`已导入到编辑区：${data.title}（${importSummary}）`);
     return;
   }
   const saveResult = await fetchJson('/api/save-document', {
@@ -393,21 +564,38 @@ async function importUrl(mode) {
   await loadLibrary();
   await rebuildSearchIndex();
   await openDocument(saveResult.path);
-  setStatus(`已导入并保存：${saveResult.path}`);
+  setStatus(`已导入并保存：${saveResult.path}（${importSummary}）`);
 }
 
 async function rebuildSearchIndex() {
-  searchMeta.textContent = '正在建立搜索索引…';
-  const docs = [];
-  await Promise.all(library.map(async doc => {
-    try {
-      const md = await resolveDocContent(doc);
-      docs.push({ ...doc, markdown: md, plain: plainText(md) });
-    } catch (_) {
-      docs.push({ ...doc, markdown: '', plain: '' });
-    }
-  }));
-  searchIndex = docs;
+  const total = library.length;
+  const token = ++searchBuildToken;
+  searchIndex = [];
+  searchCount.textContent = '0';
+  if (!total) {
+    searchMeta.textContent = '文档库为空，暂无搜索索引';
+    runSearch();
+    return;
+  }
+  searchMeta.textContent = `正在建立搜索索引…0/${total}`;
+  const batchSize = 6;
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = library.slice(i, i + batchSize);
+    const docs = await Promise.all(batch.map(async doc => {
+      try {
+        const md = await resolveDocContent(doc);
+        return { ...doc, markdown: md, plain: plainText(md) };
+      } catch (_) {
+        return { ...doc, markdown: '', plain: '' };
+      }
+    }));
+    if (token !== searchBuildToken) return;
+    searchIndex.push(...docs);
+    searchCount.textContent = String(searchIndex.length);
+    searchMeta.textContent = `正在建立搜索索引…${searchIndex.length}/${total}`;
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  if (token !== searchBuildToken) return;
   searchCount.textContent = String(searchIndex.length);
   searchMeta.textContent = `已索引 ${searchIndex.length} 篇文档`;
   runSearch();
@@ -444,7 +632,7 @@ editor.addEventListener('input', () => {
   if (currentDoc && currentDoc.type !== 'main') {
     docSlugInput.value = slugify(docSlugInput.value || currentDoc.slug || docTitleInput.value);
   }
-  render();
+  if (!richMode) render(true);
 });
 
 docTitleInput.addEventListener('input', () => {
@@ -452,7 +640,10 @@ docTitleInput.addEventListener('input', () => {
 });
 
 docSelect.addEventListener('change', async () => openDocument(docSelect.value));
-searchInput.addEventListener('input', runSearch);
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 160);
+});
 refreshLibraryBtn.addEventListener('click', async () => {
   await loadLibrary();
   await rebuildSearchIndex();
@@ -462,7 +653,7 @@ refreshLibraryBtn.addEventListener('click', async () => {
 reloadBtn.addEventListener('click', () => {
   editor.value = originalContent;
   localStorage.removeItem(currentCacheKey());
-  render();
+  render(!richMode);
   setStatus('已恢复原始内容');
 });
 
@@ -512,10 +703,51 @@ importSaveBtn.addEventListener('click', async () => {
 
 editToggleBtn.addEventListener('click', () => openEditor(editorDrawer.classList.contains('hidden')));
 closeEditorBtn.addEventListener('click', () => openEditor(false));
+toggleSidebarBtn.addEventListener('click', toggleSidebar);
+toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
+toggleThemeBtn.addEventListener('click', () => applyTheme(!darkTheme));
+if (toggleWidthBtn) {
+  toggleWidthBtn.addEventListener('click', cycleReadingDensity);
+}
 
 toggleTocBtn.addEventListener('click', () => {
   tocVisible = !tocVisible;
   tocPanel.style.display = tocVisible ? '' : 'none';
+});
+
+
+
+preview.addEventListener('input', () => {
+  if (!richMode) return;
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
+});
+
+preview.addEventListener('keydown', event => {
+  applyRichMarkdownShortcut(event);
+});
+
+richToolbar.addEventListener('click', evt => {
+  const btn = evt.target.closest('button[data-cmd]');
+  if (!btn || !richMode) return;
+  const cmd = btn.dataset.cmd;
+  preview.focus();
+  if (cmd === 'h2') {
+    execRichCommand('formatBlock', 'h2');
+  } else if (cmd === 'blockquote') {
+    execRichCommand('formatBlock', 'blockquote');
+  } else if (cmd === 'code') {
+    execRichCommand('insertHTML', '<code>代码</code>');
+  } else if (cmd === 'createLink') {
+    const link = prompt('请输入链接地址：', 'https://');
+    if (link) execRichCommand('createLink', link);
+  } else {
+    execRichCommand(cmd, null);
+  }
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
 });
 
 window.addEventListener('hashchange', async () => {
@@ -543,9 +775,15 @@ document.addEventListener('keydown', async evt => {
     evt.preventDefault();
     openEditor(editorDrawer.classList.contains('hidden'));
   }
+  if (mod && evt.shiftKey && evt.key.toLowerCase() === 'e') {
+    evt.preventDefault();
+    updateRichMode(!richMode);
+  }
 });
 
 async function init() {
+  applyTheme(localStorage.getItem('editable-note-site:theme') === 'dark');
+  applyReadingDensity(localStorage.getItem('editable-note-site:reading-density') || 'standard');
   if (STATIC_HOST) {
     setStatus('当前是静态只读模式：可阅读、搜索、导航；保存和网址导入需要本地服务端。');
   }
