@@ -1,40 +1,18 @@
 {
   "documents": [
     {
-      "title": "Note - 时清川的个人主页",
-      "slug": "note-时清川的个人主页",
-      "path": "./content/imports/note-时清川的个人主页.md",
-      "type": "import",
-      "sourceUrl": "https://sh17c.top/LessonsNotes/D2CX_Xinanyuan/note/",
-      "group": "信息安全原理",
-      "order": 1
-    },
-    {
       "title": "新手引导",
       "slug": "新手引导",
       "path": "./content/imports/新手引导.md",
       "type": "import",
       "group": "帮助",
       "order": 1
-    },
-    {
-      "title": "面向对象程序设计 - WintermelonC Docs",
-      "slug": "面向对象程序设计-wintermelonc-docs",
-      "path": "./content/imports/面向对象程序设计-wintermelonc-docs.md",
-      "type": "import",
-      "group": "帮助",
-      "order": 2,
-      "sourceUrl": "https://wintermelonc.github.io/WintermelonC_Docs/zju/basic_courses/OOP/#%E6%9C%9F%E6%9C%AB%E8%80%83%E8%AF%95"
     }
   ],
   "groups": [
     {
       "name": "帮助",
       "order": 1
-    },
-    {
-      "name": "信息安全原理",
-      "order": 2
     }
   ]
 }
