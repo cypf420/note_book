@@ -541,24 +541,59 @@ body.is-resizing * {
 .markdown-body th { background: #f4efe4; }
 
 .markdown-body pre {
-  background: #f4efe5;
-  border: 1px solid #d8cebd;
-  border-radius: 10px;
-  padding: 14px;
+  background: #f7f8fa;
+  border: 1px solid #e4e7ec;
+  border-radius: 14px;
+  padding: 18px;
   overflow: auto;
   font-size: 14px;
+  margin: 18px 0;
+}
+
+.markdown-body pre.rich-code-block {
+  position: relative;
+  padding-top: 38px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.markdown-body pre.rich-code-block::before {
+  content: attr(data-label);
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: #8a8378;
+  font-weight: 800;
+}
+
+.markdown-body pre code {
+  display: block;
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+}
+
+.markdown-body :not(pre) > code {
+  display: inline;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: #f3eee4;
+  border: 1px solid #e0d6c5;
+  font-size: .92em;
 }
 
 .markdown-body blockquote {
-  margin: 12px 0;
-  padding: 2px 0 2px 14px;
-  border-left: 3px solid #d6d2ca;
-  color: #55514a;
-  background: #fff;
+  margin: 14px 0;
+  padding: 2px 0 2px 16px;
+  border-left: 4px solid #ddd8cf;
+  color: #5c564d;
+  background: transparent;
 }
 
 .markdown-body blockquote p {
-  margin: .32em 0;
+  margin: .28em 0;
 }
 
 .markdown-body blockquote blockquote {
@@ -955,6 +990,17 @@ body.theme-dark .markdown-body blockquote {
   background: transparent;
   border-left-color: #4f5b6d;
   color: #c2cad6;
+}
+
+body.theme-dark .markdown-body pre,
+body.theme-dark .markdown-body :not(pre) > code {
+  background: #1b212b;
+  border-color: #364253;
+  color: var(--text);
+}
+
+body.theme-dark .markdown-body pre.rich-code-block::before {
+  color: #8fa1bf;
 }
 
 @media (max-width: 1280px) {

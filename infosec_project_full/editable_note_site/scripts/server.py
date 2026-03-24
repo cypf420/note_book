@@ -667,7 +667,7 @@ def create_server(host: str, preferred_port: int, attempts: int = 20) -> tuple[T
 
 def print_startup_banner(url: str) -> None:
     print('=' * 72)
-    print('本地笔记工作台已启动')
+    print('YCY 本地笔记工作台已启动')
     print(f'访问地址: {url}')
     print('抓取与保存位置:')
     print(f'  导入后的 Markdown: {IMPORT_DIR}')

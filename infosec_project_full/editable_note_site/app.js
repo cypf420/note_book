@@ -865,6 +865,7 @@ function buildTOC() {
 function render(renderAnchors = true) {
   const processed = preprocess(editor.value);
   preview.innerHTML = marked.parse(processed);
+  decorateRichBlocks();
   if (renderAnchors) attachAnchorIds();
   buildTOC();
   localStorage.setItem(currentCacheKey(), editor.value);
@@ -878,6 +879,17 @@ function htmlToMarkdown(html) {
     return turndownService.turndown(html || '').trim();
   }
   return editor.value;
+}
+
+function decorateRichBlocks(root = preview) {
+  root.querySelectorAll('pre').forEach(pre => {
+    const code = pre.querySelector('code');
+    if (!code) return;
+    pre.classList.add('rich-code-block');
+    const classMatch = (code.className || '').match(/language-([\w-]+)/);
+    const label = (code.getAttribute('data-language') || classMatch?.[1] || 'CODE').trim();
+    pre.dataset.label = label || 'CODE';
+  });
 }
 
 function syncRichSource() {
@@ -1043,6 +1055,8 @@ function applyBlockMarkdownShortcut() {
   match = text.match(/^(```)([\w-]*)$/);
   if (match) {
     const pre = document.createElement('pre');
+    pre.className = 'rich-code-block';
+    pre.dataset.label = match[2] || 'CODE';
     const code = document.createElement('code');
     if (match[2]) {
       code.dataset.language = match[2];
@@ -1160,6 +1174,8 @@ function insertRichCodeBlock() {
 
   const selectedText = selection.toString();
   const pre = document.createElement('pre');
+  pre.className = 'rich-code-block';
+  pre.dataset.label = 'CODE';
   const code = document.createElement('code');
   code.appendChild(document.createTextNode(selectedText || ''));
   pre.appendChild(code);
@@ -1171,6 +1187,42 @@ function insertRichCodeBlock() {
     placeCaretAfterNode(pre);
   } else {
     setCaretAtStart(code);
+  }
+  return true;
+}
+
+function buildQuoteParagraphs(text) {
+  const lines = (text || '').split(/\n+/).map(item => item.trim()).filter(Boolean);
+  if (!lines.length) {
+    const paragraph = document.createElement('p');
+    paragraph.appendChild(document.createElement('br'));
+    return [paragraph];
+  }
+  return lines.map(line => {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = line;
+    return paragraph;
+  });
+}
+
+function insertRichQuoteBlock() {
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return false;
+  const range = selection.getRangeAt(0);
+  if (!preview.contains(range.commonAncestorContainer)) return false;
+
+  const selectedText = selection.toString();
+  const quote = document.createElement('blockquote');
+  const paragraphs = buildQuoteParagraphs(selectedText);
+  paragraphs.forEach(paragraph => quote.appendChild(paragraph));
+
+  range.deleteContents();
+  range.insertNode(quote);
+
+  if (selectedText.trim()) {
+    placeCaretAfterNode(quote);
+  } else {
+    setCaretAtStart(paragraphs[0]);
   }
   return true;
 }
@@ -2047,7 +2099,7 @@ richToolbar.addEventListener('click', evt => {
   if (cmd === 'h2') {
     execRichCommand('formatBlock', 'h2');
   } else if (cmd === 'blockquote') {
-    execRichCommand('formatBlock', 'blockquote');
+    insertRichQuoteBlock();
   } else if (cmd === 'code') {
     insertRichCodeBlock();
   } else if (cmd === 'createLink') {
