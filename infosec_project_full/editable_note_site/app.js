@@ -532,11 +532,15 @@ async function importUrl(mode) {
     alert('请先输入网址');
     return;
   }
+  if (!/^https?:\/\//i.test(url)) {
+    alert('请输入以 http:// 或 https:// 开头的网址');
+    return;
+  }
   setStatus('正在抓取网址内容，请稍候…');
   const data = await fetchJson(`/api/import-url?url=${encodeURIComponent(url)}`);
   const meta = data.meta || {};
-  const imageStats = meta.images || { total: 0, downloaded: 0, failed: 0 };
-  const importSummary = `类型: ${meta.detectedType || 'unknown'}；图片 ${imageStats.downloaded}/${imageStats.total}${imageStats.failed ? `，失败 ${imageStats.failed}` : ''}`;
+  const imageStats = meta.images || { total: 0, downloaded: 0, failed: 0, skipped: 0 };
+  const importSummary = `类型: ${meta.detectedType || 'unknown'}；图片 ${imageStats.downloaded}/${imageStats.total}${imageStats.failed ? `，失败 ${imageStats.failed}` : ''}${imageStats.skipped ? `，跳过 ${imageStats.skipped}` : ''}`;
   docTitleInput.value = data.title || docTitleInput.value;
   docSlugInput.value = slugify(data.slug || data.title || 'imported');
   if (mode === 'preview') {

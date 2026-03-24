@@ -21,6 +21,8 @@ LIBRARY_FILE = CONTENT_DIR / 'library.json'
 HEADERS = {'User-Agent': 'EditableNoteSite/3.0 (+https://127.0.0.1)'}
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
+MAX_IMPORT_IMAGES = 80
+ALLOWED_IMG_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif'}
 
 
 def slugify(text: str) -> str:
@@ -185,6 +187,26 @@ def is_plain_text_like(content_type: str, text: str) -> bool:
     return not has_html_structure
 
 
+def _resolve_image_source(img) -> str:
+    direct = (img.get('src') or '').strip()
+    lazy = (img.get('data-src') or img.get('data-original') or img.get('data-lazy-src') or '').strip()
+    srcset = (img.get('srcset') or '').strip()
+    if direct:
+        return direct
+    if lazy:
+        return lazy
+    if srcset:
+        first = srcset.split(',')[0].strip().split(' ')[0].strip()
+        return first
+    return ''
+
+
+def _safe_image_ext(img_url: str) -> str:
+    parsed = urlparse(img_url)
+    ext = Path(parsed.path).suffix.lower() or '.png'
+    return ext if ext in ALLOWED_IMG_EXTS else '.png'
+
+
 def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[str, dict]:
     soup = BeautifulSoup(html, 'html.parser')
     target_dir = ASSET_DIR / slug
@@ -192,20 +214,31 @@ def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[st
     total = 0
     downloaded = 0
     failed = 0
+    skipped = 0
     for index, img in enumerate(soup.find_all('img'), start=1):
         total += 1
-        src = img.get('src')
+        if total > MAX_IMPORT_IMAGES:
+            skipped += 1
+            continue
+        src = _resolve_image_source(img)
         if not src:
             failed += 1
             continue
+        if src.startswith(('data:', 'javascript:')):
+            skipped += 1
+            continue
         img_url = urljoin(page_url, src)
-        parsed = urlparse(img_url)
-        ext = Path(parsed.path).suffix or '.png'
+        ext = _safe_image_ext(img_url)
         filename = f'image-{index}{ext}'
         local_path = target_dir / filename
         try:
-            r = requests.get(img_url, headers=HEADERS, timeout=30, stream=True)
+            r = SESSION.get(img_url, timeout=30, stream=True)
             r.raise_for_status()
+            ctype = (r.headers.get('Content-Type') or '').lower()
+            if ctype and 'image' not in ctype:
+                failed += 1
+                img['src'] = img_url
+                continue
             with open(local_path, 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
             img['src'] = f'./content/assets/{slug}/{filename}'
@@ -213,7 +246,7 @@ def download_and_rewrite_images(html: str, page_url: str, slug: str) -> tuple[st
         except Exception:
             img['src'] = img_url
             failed += 1
-    return str(soup), {'total': total, 'downloaded': downloaded, 'failed': failed}
+    return str(soup), {'total': total, 'downloaded': downloaded, 'failed': failed, 'skipped': skipped}
 
 
 def html_to_markdown(html: str, title: str) -> str:
