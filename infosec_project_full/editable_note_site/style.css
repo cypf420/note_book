@@ -173,6 +173,7 @@ input, select { width: 100%; padding: 10px 12px; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   min-height: 0;
+  transition: box-shadow .2s ease;
 }
 
 .panel:hover {

@@ -1080,6 +1080,44 @@ def schedule_shutdown_via_bat() -> None:
     )
 
 
+def normalize_markdown(markdown: str, title: str) -> str:
+    body = markdown.strip()
+    if body.startswith('---'):
+        return body + '\n'
+    return f'---\ntitle: {title}\n---\n\n{body}\n'
+
+
+def plain_text_to_markdown(text: str, title: str) -> str:
+    body = text.strip()
+    body = re.sub(r'\n{3,}', '\n\n', body)
+    if not body:
+        body = '(empty)'
+    return f'---\ntitle: {title}\n---\n\n{body}\n'
+
+
+def import_url_to_markdown(url: str) -> tuple[str, str, str, dict]:
+    resp = requests.get(url, headers=HEADERS, timeout=30)
+    resp.raise_for_status()
+    ctype = resp.headers.get('Content-Type', '')
+    text = resp.text
+    if is_markdown_like(url, ctype, text):
+        fallback = Path(urlparse(url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(url).netloc
+        title = extract_title_from_markdown(text, fallback)
+        slug = slugify(title)
+        return title, slug, normalize_markdown(text, title), {'detectedType': 'markdown', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
+    if is_plain_text_like(ctype, text):
+        fallback = Path(urlparse(url).path).stem.replace('-', ' ').replace('_', ' ').strip() or urlparse(url).netloc
+        first_line = next((line.strip() for line in text.splitlines() if line.strip()), fallback)
+        title = first_line[:80] if first_line else fallback
+        slug = slugify(title)
+        return title, slug, plain_text_to_markdown(text, title), {'detectedType': 'text', 'images': {'total': 0, 'downloaded': 0, 'failed': 0}}
+    title, html = extract_main_html(url, text)
+    slug = slugify(title)
+    html, image_stats = download_and_rewrite_images(html, url, slug)
+    markdown = html_to_markdown(html, title)
+    return title, slug, markdown, {'detectedType': 'html', 'images': image_stats}
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)

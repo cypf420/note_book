@@ -2505,6 +2505,37 @@ document.querySelectorAll('[data-close-modal]').forEach(node => {
   });
 });
 
+
+
+preview.addEventListener('input', () => {
+  if (!richMode) return;
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
+});
+
+richToolbar.addEventListener('click', evt => {
+  const btn = evt.target.closest('button[data-cmd]');
+  if (!btn || !richMode) return;
+  const cmd = btn.dataset.cmd;
+  preview.focus();
+  if (cmd === 'h2') {
+    execRichCommand('formatBlock', 'h2');
+  } else if (cmd === 'blockquote') {
+    execRichCommand('formatBlock', 'blockquote');
+  } else if (cmd === 'code') {
+    execRichCommand('insertHTML', '<code>代码</code>');
+  } else if (cmd === 'createLink') {
+    const link = prompt('请输入链接地址：', 'https://');
+    if (link) execRichCommand('createLink', link);
+  } else {
+    execRichCommand(cmd, null);
+  }
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
+});
+
 window.addEventListener('hashchange', async () => {
   if (!library.length) return;
   const { doc, section } = findDocByHash();
