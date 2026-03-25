@@ -14,6 +14,7 @@ const importPreviewBtn = document.getElementById('importPreviewBtn');
 const importSaveBtn = document.getElementById('importSaveBtn');
 const refreshLibraryBtn = document.getElementById('refreshLibraryBtn');
 const editToggleBtn = document.getElementById('editToggleBtn');
+<<<<<<< HEAD
 const toggleLeftSidebarBtn = document.getElementById('toggleLeftSidebarBtn');
 const toggleRightSidebarBtn = document.getElementById('toggleRightSidebarBtn');
 const toggleRichBtn = document.getElementById('toggleRichBtn');
@@ -21,6 +22,12 @@ const toggleThemeBtn = document.getElementById('toggleThemeBtn');
 const toggleWidthBtn = document.getElementById('toggleWidthBtn');
 const toggleFocusBtn = document.getElementById('toggleFocusBtn');
 const newBlankBtn = document.getElementById('newBlankBtn');
+=======
+const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
+const toggleRichBtn = document.getElementById('toggleRichBtn');
+const toggleThemeBtn = document.getElementById('toggleThemeBtn');
+const toggleWidthBtn = document.getElementById('toggleWidthBtn');
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 const closeEditorBtn = document.getElementById('closeEditorBtn');
 const docSelect = document.getElementById('docSelect');
 const docTitleInput = document.getElementById('docTitle');
@@ -41,6 +48,7 @@ const modeText = document.getElementById('modeText');
 const permalink = document.getElementById('permalink');
 const editorDrawer = document.getElementById('editorDrawer');
 const richToolbar = document.getElementById('richToolbar');
+<<<<<<< HEAD
 const leftResizer = document.getElementById('leftResizer');
 const rightResizer = document.getElementById('rightResizer');
 const toggleTreeBtn = document.getElementById('toggleTreeBtn');
@@ -62,6 +70,8 @@ const renameGroupBtn = document.getElementById('renameGroupBtn');
 const updateGroupParentBtn = document.getElementById('updateGroupParentBtn');
 const deleteGroupBtn = document.getElementById('deleteGroupBtn');
 const groupManageHint = document.getElementById('groupManageHint');
+=======
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 
 let library = [];
 let libraryGroups = [];
@@ -73,10 +83,16 @@ let rightSidebarCollapsed = false;
 let richMode = false;
 let focusMode = false;
 let tocVisible = true;
+<<<<<<< HEAD
+=======
+let sidebarCollapsed = false;
+let richMode = false;
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 let darkTheme = false;
 let readingDensity = 'standard';
 let searchTimer = null;
 let searchBuildToken = 0;
+<<<<<<< HEAD
 const LAYOUT_STORAGE_KEY = 'editable-note-site-layout';
 const GROUP_COLLAPSE_STORAGE_KEY = 'editable-note-site-group-collapse';
 const TREE_DRAWER_STORAGE_KEY = 'editable-note-site-tree-drawer-open';
@@ -119,6 +135,9 @@ let collapsedGroups = readCollapsedGroups();
 let draggedDocPath = null;
 let treeDrawerOpen = readTreeDrawerState();
 let applyingRichShortcut = false;
+=======
+const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -128,6 +147,7 @@ function setStatus(text, isError = false) {
   statusText.classList.toggle('status-ok', !isError);
 }
 
+<<<<<<< HEAD
 function showIllegalAction(message) {
   const text = `非法操作：${message}`;
   setStatus(text, true);
@@ -291,6 +311,13 @@ function applyTheme(isDark) {
     toggleThemeBtn.textContent = darkTheme ? '切换浅色报刊' : '切换夜间雅黑';
   }
   localStorage.setItem(THEME_STORAGE_KEY, darkTheme ? 'dark' : 'light');
+=======
+function applyTheme(isDark) {
+  darkTheme = !!isDark;
+  document.body.classList.toggle('theme-dark', darkTheme);
+  toggleThemeBtn.textContent = darkTheme ? '切换浅色报刊' : '切换夜间雅黑';
+  localStorage.setItem('editable-note-site:theme', darkTheme ? 'dark' : 'light');
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 }
 
 function applyReadingDensity(mode) {
@@ -307,11 +334,16 @@ function applyReadingDensity(mode) {
     };
     toggleWidthBtn.textContent = labelMap[next];
   }
+<<<<<<< HEAD
   localStorage.setItem(READING_DENSITY_STORAGE_KEY, next);
+=======
+  localStorage.setItem('editable-note-site:reading-density', next);
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 }
 
 function cycleReadingDensity() {
   const order = ['compact', 'standard', 'wide'];
+<<<<<<< HEAD
   const index = order.indexOf(readingDensity);
   const next = order[(index + 1) % order.length];
   applyReadingDensity(next);
@@ -425,6 +457,12 @@ function startResize(side, evt) {
 
   document.addEventListener('pointermove', handleMove);
   document.addEventListener('pointerup', handleUp);
+=======
+  const idx = order.indexOf(readingDensity);
+  const next = order[(idx + 1) % order.length];
+  applyReadingDensity(next);
+  setStatus(`已切换阅读宽度：${next === 'compact' ? '专栏窄栏' : next === 'wide' ? '沉浸宽幅' : '标准宽度'}`);
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 }
 
 function slugify(text) {
@@ -865,7 +903,10 @@ function buildTOC() {
 function render(renderAnchors = true) {
   const processed = preprocess(editor.value);
   preview.innerHTML = marked.parse(processed);
+<<<<<<< HEAD
   decorateRichBlocks();
+=======
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
   if (renderAnchors) attachAnchorIds();
   buildTOC();
   localStorage.setItem(currentCacheKey(), editor.value);
@@ -881,6 +922,7 @@ function htmlToMarkdown(html) {
   return editor.value;
 }
 
+<<<<<<< HEAD
 function decorateRichBlocks(root = preview) {
   root.querySelectorAll('pre').forEach(pre => {
     const code = pre.querySelector('code');
@@ -1227,6 +1269,8 @@ function insertRichQuoteBlock() {
   return true;
 }
 
+=======
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 function execRichCommand(cmd, value = null) {
   if (typeof document.execCommand === 'function') {
     return document.execCommand(cmd, false, value);
@@ -1261,6 +1305,21 @@ function updateRichMode(enabled) {
   }
 }
 
+<<<<<<< HEAD
+=======
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  document.body.classList.toggle('sidebar-collapsed', sidebarCollapsed);
+  toggleSidebarBtn.textContent = sidebarCollapsed ? '展开边栏（退出专注）' : '收起边栏（专注模式）';
+  toggleSidebarBtn.setAttribute('aria-expanded', String(!sidebarCollapsed));
+  if (sidebarCollapsed) {
+    setStatus('已进入专注模式：边栏已收起，笔记占满屏幕');
+  } else {
+    setStatus('已展开边栏');
+  }
+}
+
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 function openEditor(force = true) {
   if (richMode && force) updateRichMode(false);
   editorDrawer.classList.toggle('hidden', !force);
@@ -1636,6 +1695,7 @@ async function createManagedGroup() {
     showIllegalAction('新建子分组时，请只输入这一层的名称，不要再包含 /');
     return;
   }
+<<<<<<< HEAD
   const parent = normalizeGroupName(parentGroupSelect.value);
   const fullName = parent ? `${parent}/${leafName}` : leafName;
   await createGroup(leafName, parent);
@@ -1787,6 +1847,12 @@ async function deleteDocument(doc = currentDoc) {
 async function importUrl(mode) {
   const url = validateUrlOrThrow(urlInput.value);
   const pendingGroup = getPendingGroupValue() ? validateGroupNameOrThrow(getPendingGroupValue()) : '';
+=======
+  if (!/^https?:\/\//i.test(url)) {
+    alert('请输入以 http:// 或 https:// 开头的网址');
+    return;
+  }
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
   setStatus('正在抓取网址内容，请稍候…');
   const data = await fetchJson(`/api/import-url?url=${encodeURIComponent(url)}`);
   const meta = data.meta || {};
@@ -1807,7 +1873,10 @@ async function importUrl(mode) {
     render(!richMode);
     openEditor(true);
     docPath.textContent = 'adhoc / 未保存导入';
+<<<<<<< HEAD
     updateGroupToolbarState();
+=======
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
     setStatus(`已导入到编辑区：${data.title}（${importSummary}）`);
     return;
   }
@@ -1907,6 +1976,7 @@ searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(runSearch, 160);
 });
+<<<<<<< HEAD
 groupFilterSelect.addEventListener('change', () => {
   currentGroupFilter = groupFilterSelect.value;
   renderLibraryList();
@@ -1986,6 +2056,8 @@ moveDocDownBtn.addEventListener('click', async () => {
     else showRequestError('顺序调整失败', err);
   }
 });
+=======
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 refreshLibraryBtn.addEventListener('click', async () => {
   await loadLibrary();
   await rebuildSearchIndex();
@@ -2057,6 +2129,7 @@ importSaveBtn.addEventListener('click', async () => {
 
 editToggleBtn.addEventListener('click', () => openEditor(editorDrawer.classList.contains('hidden')));
 closeEditorBtn.addEventListener('click', () => openEditor(false));
+<<<<<<< HEAD
 toggleLeftSidebarBtn.addEventListener('click', toggleLeftSidebar);
 toggleRightSidebarBtn.addEventListener('click', toggleRightSidebar);
 toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
@@ -2078,6 +2151,14 @@ if (toggleTocBtn) {
 leftResizer.addEventListener('pointerdown', evt => startResize('left', evt));
 rightResizer.addEventListener('pointerdown', evt => startResize('right', evt));
 window.addEventListener('resize', applyLayoutState);
+=======
+toggleSidebarBtn.addEventListener('click', toggleSidebar);
+toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
+toggleThemeBtn.addEventListener('click', () => applyTheme(!darkTheme));
+if (toggleWidthBtn) {
+  toggleWidthBtn.addEventListener('click', cycleReadingDensity);
+}
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 
 preview.addEventListener('input', () => {
   if (!richMode) return;
@@ -2109,6 +2190,37 @@ richToolbar.addEventListener('click', evt => {
     execRichCommand(cmd, null);
   }
   syncRichSource();
+});
+
+
+
+preview.addEventListener('input', () => {
+  if (!richMode) return;
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
+});
+
+richToolbar.addEventListener('click', evt => {
+  const btn = evt.target.closest('button[data-cmd]');
+  if (!btn || !richMode) return;
+  const cmd = btn.dataset.cmd;
+  preview.focus();
+  if (cmd === 'h2') {
+    execRichCommand('formatBlock', 'h2');
+  } else if (cmd === 'blockquote') {
+    execRichCommand('formatBlock', 'blockquote');
+  } else if (cmd === 'code') {
+    execRichCommand('insertHTML', '<code>代码</code>');
+  } else if (cmd === 'createLink') {
+    const link = prompt('请输入链接地址：', 'https://');
+    if (link) execRichCommand('createLink', link);
+  } else {
+    execRichCommand(cmd, null);
+  }
+  editor.value = htmlToMarkdown(preview.innerHTML);
+  localStorage.setItem(currentCacheKey(), editor.value);
+  buildTOC();
 });
 
 window.addEventListener('hashchange', async () => {
@@ -2146,10 +2258,15 @@ document.addEventListener('keydown', async evt => {
 });
 
 async function init() {
+<<<<<<< HEAD
   applyTheme(localStorage.getItem(THEME_STORAGE_KEY) === 'dark');
   applyReadingDensity(localStorage.getItem(READING_DENSITY_STORAGE_KEY) || 'standard');
   focusMode = localStorage.getItem(FOCUS_MODE_STORAGE_KEY) === '1';
   tocVisible = localStorage.getItem(TOC_VISIBLE_STORAGE_KEY) !== '0';
+=======
+  applyTheme(localStorage.getItem('editable-note-site:theme') === 'dark');
+  applyReadingDensity(localStorage.getItem('editable-note-site:reading-density') || 'standard');
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
   if (STATIC_HOST) {
     setStatus('当前是静态只读模式：可阅读、搜索、导航；保存和网址导入需要本地服务端。');
   }

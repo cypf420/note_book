@@ -12,15 +12,24 @@
 <body>
   <header class="topbar">
     <div class="brand">
+<<<<<<< HEAD
       <h1>YCY 本地笔记工作台</h1>
       <p>支持树形分组、网页智能导入、阅读主题切换，以及 Markdown / 所见即所得一体化编辑。</p>
+=======
+      <h1>信息安全原理笔记工作台</h1>
+      <p>语雀风格所见即所得编辑 + 高级极简排版，支持可折叠边栏、专注全屏写作与 HTML/Markdown 网址导入。</p>
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
     </div>
     <div class="top-actions">
       <button id="toggleThemeBtn">切换夜间雅黑</button>
       <button id="toggleWidthBtn">阅读宽度：标准</button>
+<<<<<<< HEAD
       <button id="toggleFocusBtn">专注模式</button>
       <button id="toggleTreeBtn">笔记树</button>
       <button id="newBlankBtn">新建空白文档</button>
+=======
+      <button id="toggleSidebarBtn">收起边栏（专注模式）</button>
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
       <button id="toggleRichBtn">切换到所见即所得</button>
       <button id="editToggleBtn">编辑当前文档</button>
       <button id="reloadBtn">恢复原始内容</button>
@@ -90,6 +99,7 @@
   </section>
 
   <main class="app-grid">
+<<<<<<< HEAD
     <button id="toggleLeftSidebarBtn" class="panel-edge-toggle panel-edge-toggle-left" aria-label="收起左侧栏" aria-expanded="true">‹</button>
     <button id="toggleRightSidebarBtn" class="panel-edge-toggle panel-edge-toggle-right" aria-label="收起右侧栏" aria-expanded="true">›</button>
 
@@ -100,6 +110,10 @@
           <div class="panel-kicker">检索、导入与文档管理</div>
         </div>
       </div>
+=======
+    <aside id="sidebarPanel" class="panel sidebar">
+      <div class="panel-title">站点导航</div>
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 
       <div class="sidebar-section">
         <label class="field-label" for="searchInput">全文搜索</label>
@@ -138,7 +152,11 @@
           <button id="importPreviewBtn">一键导入到编辑区</button>
           <button id="importSaveBtn">一键导入并保存到站点</button>
         </div>
+<<<<<<< HEAD
         <p class="hint">会自动识别 HTML、Markdown 和纯文本页面，并统一转换为 Markdown。Windows 下推荐直接双击 <code>begin.bat</code> 启动。</p>
+=======
+        <p class="hint">会自动识别 HTML / Markdown / text 页面，并统一转换为 Markdown 进入编辑流。该功能需要 <code>python scripts/server.py</code> 启动。</p>
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
       </div>
 
       <div class="sidebar-section stats-grid">
@@ -180,7 +198,11 @@
         <button data-cmd="h2">标题</button>
         <button data-cmd="insertUnorderedList">列表</button>
         <button data-cmd="blockquote">引用</button>
+<<<<<<< HEAD
         <button data-cmd="code">代码块</button>
+=======
+        <button data-cmd="code">代码</button>
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
         <button data-cmd="createLink">链接</button>
       </div>
 
@@ -190,7 +212,11 @@
           <div class="editor-head">
             <div>
               <strong>Markdown 源码编辑</strong>
+<<<<<<< HEAD
               <span class="hint">Ctrl / Cmd + S 保存，Esc 退出编辑；所见即所得模式也支持直接输入常用 Markdown 快捷语法</span>
+=======
+              <span class="hint">Ctrl / Cmd + S 保存，Esc 退出编辑</span>
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
             </div>
             <button id="closeEditorBtn" class="ghost-btn">关闭编辑器</button>
           </div>
@@ -285,7 +311,11 @@ print("指定语言高亮")
   </main>
 
   <footer class="footer">
+<<<<<<< HEAD
     <p>侧栏支持折叠与拖拽调宽，编辑内容会自动保存在浏览器缓存中。</p>
+=======
+    <p>已加入：渐进式全文索引、自动目录、文档路由、Typora 风格阅读/编辑切换、语雀风格所见即所得、纽约时报灵感视觉、可折叠专注模式。</p>
+>>>>>>> c90aea30e63a997853bf489f28ec218544db4196
   </footer>
 
   <script src="app.js"></script>
