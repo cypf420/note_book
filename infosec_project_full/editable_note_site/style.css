@@ -837,6 +837,106 @@ body.editor-open .markdown-body {
   line-height: 1.7;
 }
 
+.modal-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 24, 32, 0.34);
+  backdrop-filter: blur(6px);
+}
+
+.modal-card {
+  position: relative;
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 20px 22px 22px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #fffdf9 0%, #f7f1e7 100%);
+  box-shadow: 0 24px 60px rgba(18, 23, 38, 0.18);
+}
+
+.modal-card-wide {
+  width: min(980px, calc(100vw - 32px));
+}
+
+.modal-body {
+  display: grid;
+  gap: 16px;
+}
+
+.modal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.shared-notes-list {
+  display: grid;
+  gap: 14px;
+}
+
+.shared-note-card {
+  border: 1px solid #ded3c0;
+  border-radius: 16px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: var(--shadow-soft);
+}
+
+.shared-note-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.shared-note-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.shared-note-meta {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.shared-note-docs {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.shared-note-doc {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fbf7f0;
+  border: 1px solid #e5dccd;
+}
+
+.shared-note-doc strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
 .footer {
   max-width: 1720px;
   margin: 0 auto;
@@ -1012,6 +1112,7 @@ body.theme-dark .sidebar,
 body.theme-dark .toc-panel,
 body.theme-dark .workspace-toolbar,
 body.theme-dark .editor-drawer,
+body.theme-dark .modal-card,
 body.theme-dark .doc-shell {
   background: linear-gradient(180deg, #181d24 0%, #131920 100%);
 }
@@ -1019,7 +1120,10 @@ body.theme-dark .doc-shell {
 body.theme-dark .top-actions button,
 body.theme-dark .panel-edge-toggle,
 body.theme-dark .markdown-cheatsheet,
-body.theme-dark .cheatsheet-card {
+body.theme-dark .cheatsheet-card,
+body.theme-dark .shared-note-card,
+body.theme-dark .shared-note-doc,
+body.theme-dark .modal-card {
   background: rgba(24, 29, 36, 0.95);
   border-color: #364253;
 }
@@ -1048,7 +1152,9 @@ body.theme-dark .doc-group-name,
 body.theme-dark .doc-group-chevron,
 body.theme-dark .doc-group-count,
 body.theme-dark .panel-kicker,
-body.theme-dark .markdown-cheatsheet summary {
+body.theme-dark .markdown-cheatsheet summary,
+body.theme-dark .shared-note-title,
+body.theme-dark .shared-note-meta {
   color: var(--text);
 }
 
@@ -1094,6 +1200,20 @@ body.theme-dark .markdown-body pre.rich-code-block::before {
   .tree-drawer {
     margin: 16px 16px 0;
     padding: 14px;
+  }
+
+  .modal-shell {
+    padding: 12px;
+  }
+
+  .modal-card,
+  .modal-card-wide {
+    width: min(100vw - 24px, 100%);
+    padding: 16px;
+  }
+
+  .modal-grid {
+    grid-template-columns: 1fr;
   }
 
   .topbar,

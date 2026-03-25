@@ -10,6 +10,8 @@ const saveBtn = document.getElementById('saveBtn');
 const deleteBtn = document.getElementById('deleteBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const clearLocalBtn = document.getElementById('clearLocalBtn');
+const publishShareBtn = document.getElementById('publishShareBtn');
+const browseShareBtn = document.getElementById('browseShareBtn');
 const exitSiteBtn = document.getElementById('exitSiteBtn');
 const importPreviewBtn = document.getElementById('importPreviewBtn');
 const importSaveBtn = document.getElementById('importSaveBtn');
@@ -64,6 +66,19 @@ const renameGroupBtn = document.getElementById('renameGroupBtn');
 const updateGroupParentBtn = document.getElementById('updateGroupParentBtn');
 const deleteGroupBtn = document.getElementById('deleteGroupBtn');
 const groupManageHint = document.getElementById('groupManageHint');
+const sharePublishModal = document.getElementById('sharePublishModal');
+const closeSharePublishModalBtn = document.getElementById('closeSharePublishModalBtn');
+const shareAcademyInput = document.getElementById('shareAcademyInput');
+const shareMajorInput = document.getElementById('shareMajorInput');
+const shareYearInput = document.getElementById('shareYearInput');
+const shareBranchPreview = document.getElementById('shareBranchPreview');
+const sharePublishMeta = document.getElementById('sharePublishMeta');
+const confirmSharePublishBtn = document.getElementById('confirmSharePublishBtn');
+const sharedBrowseModal = document.getElementById('sharedBrowseModal');
+const refreshSharedNotesBtn = document.getElementById('refreshSharedNotesBtn');
+const closeSharedBrowseModalBtn = document.getElementById('closeSharedBrowseModalBtn');
+const sharedNotesMeta = document.getElementById('sharedNotesMeta');
+const sharedNotesList = document.getElementById('sharedNotesList');
 
 let library = [];
 let libraryGroups = [];
@@ -86,6 +101,7 @@ const THEME_STORAGE_KEY = 'editable-note-site-theme';
 const READING_DENSITY_STORAGE_KEY = 'editable-note-site-reading-density';
 const FOCUS_MODE_STORAGE_KEY = 'editable-note-site-focus-mode';
 const TOC_VISIBLE_STORAGE_KEY = 'editable-note-site-toc-visible';
+const SHARE_PROFILE_STORAGE_KEY = 'editable-note-site-share-profile';
 const DEFAULT_LAYOUT = { leftWidth: 310, rightWidth: 250 };
 const layoutState = readLayoutState();
 const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
@@ -121,6 +137,7 @@ let collapsedGroups = readCollapsedGroups();
 let draggedDocPath = null;
 let treeDrawerOpen = readTreeDrawerState();
 let applyingRichShortcut = false;
+let sharedNotesCache = [];
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -141,6 +158,79 @@ function showRequestError(prefix, err) {
   const message = err?.message || String(err);
   setStatus(`${prefix}：${message}`, true);
   alert(`${prefix}：${message}\n\n请确认当前是通过 python scripts/server.py 或 begin.bat 启动的本地站点。`);
+}
+
+function normalizeShareField(value) {
+  return (value || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^\w\u4e00-\u9fa5-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[._/-]+|[._/-]+$/g, '')
+    .slice(0, 80);
+}
+
+function buildShareBranchName() {
+  const academy = normalizeShareField(shareAcademyInput?.value || '');
+  const major = normalizeShareField(shareMajorInput?.value || '');
+  const year = normalizeShareField(shareYearInput?.value || '');
+  if (!academy || !major || !year) return '';
+  return `${academy}_${major}_${year}`;
+}
+
+function updateShareBranchPreview() {
+  if (!shareBranchPreview) return;
+  const branchName = buildShareBranchName();
+  shareBranchPreview.textContent = branchName || '未填写完整';
+}
+
+function readShareProfile() {
+  try {
+    return JSON.parse(localStorage.getItem(SHARE_PROFILE_STORAGE_KEY) || '{}');
+  } catch (_) {
+    return {};
+  }
+}
+
+function persistShareProfile() {
+  localStorage.setItem(SHARE_PROFILE_STORAGE_KEY, JSON.stringify({
+    academy: (shareAcademyInput?.value || '').trim(),
+    major: (shareMajorInput?.value || '').trim(),
+    year: (shareYearInput?.value || '').trim(),
+  }));
+}
+
+function applyShareProfile(profile = {}) {
+  if (shareAcademyInput) shareAcademyInput.value = profile.academy || '';
+  if (shareMajorInput) shareMajorInput.value = profile.major || '';
+  if (shareYearInput) shareYearInput.value = profile.year || '';
+  updateShareBranchPreview();
+}
+
+function setModalOpen(modal, open) {
+  if (!modal) return;
+  modal.classList.toggle('hidden', !open);
+  modal.setAttribute('aria-hidden', String(!open));
+}
+
+function openSharePublishModal() {
+  applyShareProfile(readShareProfile());
+  if (sharePublishMeta) {
+    sharePublishMeta.innerHTML = '上传会使用当前仓库的 <code>origin</code> 远程。如果本机没有 GitHub 凭据，推送会失败。';
+  }
+  setModalOpen(sharePublishModal, true);
+}
+
+function closeSharePublishModal() {
+  setModalOpen(sharePublishModal, false);
+}
+
+function openSharedBrowseModal() {
+  setModalOpen(sharedBrowseModal, true);
+}
+
+function closeSharedBrowseModal() {
+  setModalOpen(sharedBrowseModal, false);
 }
 
 function leaveAppPageAfterShutdown() {
@@ -914,6 +1004,59 @@ function plainText(md) {
 
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function formatShareTime(value) {
+  if (!value) return '未知时间';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
+}
+
+function renderSharedNotesList(items = []) {
+  if (!sharedNotesList || !sharedNotesMeta) return;
+  sharedNotesCache = items;
+  if (!items.length) {
+    sharedNotesMeta.textContent = '还没有检测到可导入的共享分支。';
+    sharedNotesList.innerHTML = '<div class="empty-search">暂无共享笔记。点击“上传共享笔记”后，这里会自动出现可导入的列表。</div>';
+    return;
+  }
+  sharedNotesMeta.textContent = `当前共发现 ${items.length} 个共享分支。点击“导入到本地”后会自动合并进本地文档库。`;
+  sharedNotesList.innerHTML = items.map(item => {
+    const docs = (item.documents || []).slice(0, 6);
+    const docsHtml = docs.length
+      ? docs.map(doc => `
+        <div class="shared-note-doc">
+          <strong>${escapeHtml(doc.title || doc.slug || '未命名笔记')}</strong>
+          <div class="doc-meta">${escapeHtml(doc.group || '未分组')}</div>
+        </div>
+      `).join('')
+      : '<div class="empty-search">该分支暂未写入笔记摘要。</div>';
+    return `
+      <article class="shared-note-card">
+        <div class="shared-note-head">
+          <div>
+            <div class="shared-note-title">${escapeHtml(item.branchName || '未命名分支')}</div>
+            <div class="shared-note-meta">
+              ${escapeHtml(item.academy || '')} / ${escapeHtml(item.major || '')} / ${escapeHtml(item.year || '')}<br />
+              笔记 ${Number(item.documentCount || 0)} 篇，分组 ${Number(item.groupCount || 0)} 个，更新时间 ${escapeHtml(formatShareTime(item.publishedAt))}
+            </div>
+          </div>
+          <div class="mini-actions">
+            <button class="shared-import-btn" data-branch="${escapeHtml(item.branchName || '')}">导入到本地</button>
+          </div>
+        </div>
+        <div class="shared-note-docs">${docsHtml}</div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function refreshSharedNotesList() {
+  if (!sharedNotesMeta || !sharedNotesList) return;
+  sharedNotesMeta.textContent = '正在扫描远程共享分支…';
+  sharedNotesList.innerHTML = '<div class="empty-search">正在加载…</div>';
+  const result = await fetchSharedNotesList();
+  renderSharedNotesList(result.items || []);
 }
 
 function highlightSnippet(text, query) {
@@ -1743,6 +1886,26 @@ async function deleteGroup(name) {
   });
 }
 
+async function publishSharedNotes(payload) {
+  return fetchJson('/api/publish-shared-notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+}
+
+async function fetchSharedNotesList() {
+  return fetchJson('/api/shared-notes');
+}
+
+async function importSharedNotesBranch(branchName) {
+  return fetchJson('/api/import-shared-notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ branchName })
+  });
+}
+
 async function createManagedGroup() {
   const leafName = validateGroupNameOrThrow(newGroupInput.value);
   if (leafName.includes('/')) {
@@ -2134,6 +2297,73 @@ clearLocalBtn.addEventListener('click', () => {
   Object.keys(localStorage).filter(key => key.startsWith(LOCAL_CACHE_PREFIX)).forEach(key => localStorage.removeItem(key));
   setStatus('浏览器缓存已清空');
 });
+if (publishShareBtn) {
+  publishShareBtn.addEventListener('click', () => {
+    if (STATIC_HOST) {
+      setStatus('静态只读模式下无法上传共享笔记', true);
+      return;
+    }
+    openSharePublishModal();
+  });
+}
+if (browseShareBtn) {
+  browseShareBtn.addEventListener('click', async () => {
+    if (STATIC_HOST) {
+      setStatus('静态只读模式下无法拉取共享笔记', true);
+      return;
+    }
+    openSharedBrowseModal();
+    try {
+      await refreshSharedNotesList();
+    } catch (err) {
+      showRequestError('共享笔记列表加载失败', err);
+    }
+  });
+}
+if (closeSharePublishModalBtn) {
+  closeSharePublishModalBtn.addEventListener('click', closeSharePublishModal);
+}
+if (closeSharedBrowseModalBtn) {
+  closeSharedBrowseModalBtn.addEventListener('click', closeSharedBrowseModal);
+}
+if (refreshSharedNotesBtn) {
+  refreshSharedNotesBtn.addEventListener('click', async () => {
+    try {
+      await refreshSharedNotesList();
+    } catch (err) {
+      showRequestError('共享笔记列表刷新失败', err);
+    }
+  });
+}
+[shareAcademyInput, shareMajorInput, shareYearInput].forEach(input => {
+  input?.addEventListener('input', updateShareBranchPreview);
+  input?.addEventListener('change', persistShareProfile);
+});
+if (confirmSharePublishBtn) {
+  confirmSharePublishBtn.addEventListener('click', async () => {
+    const academy = (shareAcademyInput?.value || '').trim();
+    const major = (shareMajorInput?.value || '').trim();
+    const year = (shareYearInput?.value || '').trim();
+    if (!academy || !major || !year) {
+      setStatus('请先填写学院、专业和年级', true);
+      return;
+    }
+    persistShareProfile();
+    confirmSharePublishBtn.disabled = true;
+    sharePublishMeta.textContent = '正在创建或更新共享分支并推送到 GitHub…';
+    try {
+      const result = await publishSharedNotes({ academy, major, year });
+      sharePublishMeta.textContent = `上传完成：${result.branchName}，共同步 ${result.documentCount} 篇笔记。`;
+      setStatus(`共享分支已上传：${result.branchName}`);
+      closeSharePublishModal();
+    } catch (err) {
+      sharePublishMeta.textContent = '上传失败，请检查 GitHub 凭据、远程地址和网络连接。';
+      showRequestError('共享上传失败', err);
+    } finally {
+      confirmSharePublishBtn.disabled = false;
+    }
+  });
+}
 if (exitSiteBtn) {
   exitSiteBtn.addEventListener('click', async () => {
     try {
@@ -2240,6 +2470,41 @@ richToolbar.addEventListener('click', evt => {
   syncRichSource();
 });
 
+if (sharedNotesList) {
+  sharedNotesList.addEventListener('click', async evt => {
+    const btn = evt.target.closest('.shared-import-btn');
+    if (!btn) return;
+    const branchName = btn.dataset.branch || '';
+    if (!branchName) return;
+    btn.disabled = true;
+    sharedNotesMeta.textContent = `正在导入 ${branchName} …`;
+    try {
+      const result = await importSharedNotesBranch(branchName);
+      await loadLibrary();
+      await rebuildSearchIndex();
+      renderSharedNotesList(sharedNotesCache);
+      if (result.documents?.[0]?.path) {
+        await openDocument(result.documents[0].path);
+      }
+      setStatus(`已导入共享笔记：${branchName}（${result.documentCount} 篇）`);
+      sharedNotesMeta.textContent = `已导入 ${branchName}，共 ${result.documentCount} 篇笔记。`;
+    } catch (err) {
+      sharedNotesMeta.textContent = `导入 ${branchName} 失败。`;
+      showRequestError('共享笔记导入失败', err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+document.querySelectorAll('[data-close-modal]').forEach(node => {
+  node.addEventListener('click', evt => {
+    const modalId = evt.currentTarget.getAttribute('data-close-modal');
+    if (!modalId) return;
+    setModalOpen(document.getElementById(modalId), false);
+  });
+});
+
 window.addEventListener('hashchange', async () => {
   if (!library.length) return;
   const { doc, section } = findDocByHash();
@@ -2263,6 +2528,8 @@ document.addEventListener('keydown', async evt => {
   if (evt.key === 'Escape') {
     openEditor(false);
     if (treeDrawerOpen) setTreeDrawerOpen(false);
+    closeSharePublishModal();
+    closeSharedBrowseModal();
   }
   if (mod && evt.key.toLowerCase() === 'e') {
     evt.preventDefault();
@@ -2279,9 +2546,18 @@ async function init() {
   applyReadingDensity(localStorage.getItem(READING_DENSITY_STORAGE_KEY) || 'standard');
   focusMode = localStorage.getItem(FOCUS_MODE_STORAGE_KEY) === '1';
   tocVisible = localStorage.getItem(TOC_VISIBLE_STORAGE_KEY) !== '0';
+  applyShareProfile(readShareProfile());
   if (exitSiteBtn) {
     exitSiteBtn.disabled = STATIC_HOST;
     exitSiteBtn.title = STATIC_HOST ? '静态只读模式下无法关闭本地服务' : '停止本地服务并关闭页面';
+  }
+  if (publishShareBtn) {
+    publishShareBtn.disabled = STATIC_HOST;
+    publishShareBtn.title = STATIC_HOST ? '静态只读模式下无法上传共享笔记' : '上传当前站点笔记到 GitHub 共享分支';
+  }
+  if (browseShareBtn) {
+    browseShareBtn.disabled = STATIC_HOST;
+    browseShareBtn.title = STATIC_HOST ? '静态只读模式下无法拉取共享笔记' : '浏览并导入 GitHub 上的共享笔记';
   }
   if (STATIC_HOST) {
     setStatus('当前是静态只读模式：可阅读、搜索、导航；保存和网址导入需要本地服务端。');

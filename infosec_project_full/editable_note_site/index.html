@@ -25,6 +25,8 @@
       <button id="editToggleBtn">编辑当前文档</button>
       <button id="reloadBtn">恢复原始内容</button>
       <button id="saveBtn">保存到站点</button>
+      <button id="publishShareBtn">上传共享笔记</button>
+      <button id="browseShareBtn">拉取共享笔记</button>
       <button id="deleteBtn" class="danger-btn">删除当前文档</button>
       <button id="downloadBtn">导出 Markdown</button>
       <button id="clearLocalBtn">清空缓存</button>
@@ -284,6 +286,64 @@ print("指定语言高亮")
       </ul>
     </aside>
   </main>
+
+  <section id="sharePublishModal" class="modal-shell hidden" aria-hidden="true" aria-label="上传共享笔记">
+    <div class="modal-backdrop" data-close-modal="sharePublishModal"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="sharePublishTitle">
+      <div class="panel-shell-head">
+        <div>
+          <div id="sharePublishTitle" class="panel-title">上传共享笔记</div>
+          <div class="panel-kicker">系统会按学院、专业、年级自动创建或更新 GitHub 分支。</div>
+        </div>
+        <button id="closeSharePublishModalBtn" class="ghost-btn">关闭</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-grid">
+          <div>
+            <label class="field-label" for="shareAcademyInput">学院</label>
+            <input id="shareAcademyInput" type="text" placeholder="例如 计算机学院" />
+          </div>
+          <div>
+            <label class="field-label" for="shareMajorInput">专业</label>
+            <input id="shareMajorInput" type="text" placeholder="例如 信息安全" />
+          </div>
+          <div>
+            <label class="field-label" for="shareYearInput">年级</label>
+            <input id="shareYearInput" type="text" placeholder="例如 2023级" />
+          </div>
+        </div>
+        <div class="status-card">
+          <div class="status-title">分支预览</div>
+          <div id="shareBranchPreview" class="doc-path">未填写完整</div>
+          <div class="hint">将上传当前站点里的文档索引、Markdown 文档和图片资源到该分支的共享目录。</div>
+        </div>
+        <div id="sharePublishMeta" class="hint">上传会使用当前仓库的 <code>origin</code> 远程。如果本机没有 GitHub 凭据，推送会失败。</div>
+      </div>
+      <div class="modal-actions">
+        <button id="confirmSharePublishBtn">开始上传</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="sharedBrowseModal" class="modal-shell hidden" aria-hidden="true" aria-label="拉取共享笔记">
+    <div class="modal-backdrop" data-close-modal="sharedBrowseModal"></div>
+    <div class="modal-card modal-card-wide" role="dialog" aria-modal="true" aria-labelledby="sharedBrowseTitle">
+      <div class="panel-shell-head">
+        <div>
+          <div id="sharedBrowseTitle" class="panel-title">拉取共享笔记</div>
+          <div class="panel-kicker">浏览其他用户已经上传的共享分支，并一键导入到本地站点。</div>
+        </div>
+        <div class="mini-actions">
+          <button id="refreshSharedNotesBtn" class="ghost-btn">刷新列表</button>
+          <button id="closeSharedBrowseModalBtn" class="ghost-btn">关闭</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="sharedNotesMeta" class="hint">加载中…</div>
+        <div id="sharedNotesList" class="shared-notes-list"></div>
+      </div>
+    </div>
+  </section>
 
   <footer class="footer">
     <p>侧栏支持折叠与拖拽调宽，编辑内容会自动保存在浏览器缓存中。</p>

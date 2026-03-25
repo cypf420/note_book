@@ -6,7 +6,9 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import webbrowser
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -17,6 +19,32 @@ from bs4 import BeautifulSoup
 import import_pipeline as pipeline
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def find_git_repo_root(start: Path) -> Path:
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--show-toplevel'],
+            cwd=str(start),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='ignore',
+        )
+    except OSError:
+        return start
+    if result.returncode != 0:
+        return start
+    text = result.stdout.strip()
+    return Path(text) if text else start
+
+
+REPO_ROOT = find_git_repo_root(ROOT)
+try:
+    SITE_REPO_ROOT = ROOT.relative_to(REPO_ROOT)
+except ValueError:
+    SITE_REPO_ROOT = Path('.')
 CONTENT_DIR = ROOT / 'content'
 IMPORT_DIR = CONTENT_DIR / 'imports'
 ASSET_DIR = CONTENT_DIR / 'assets'
@@ -24,6 +52,10 @@ LIBRARY_FILE = CONTENT_DIR / 'library.json'
 RUNTIME_DIR = ROOT / 'runtime'
 SERVER_STATE_FILE = RUNTIME_DIR / 'server-state.json'
 STOP_BAT_FILE = ROOT / 'stop.bat'
+SHARED_NOTES_DIRNAME = 'shared_notes'
+SHARED_NOTES_LOCAL_DIR = ROOT / SHARED_NOTES_DIRNAME
+AUTOMATION_COMMIT_NAME = 'Note Book Publisher'
+AUTOMATION_COMMIT_EMAIL = 'note-book@local.invalid'
 HEADERS = {'User-Agent': 'EditableNoteSite/3.0 (+https://127.0.0.1)'}
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
@@ -36,6 +68,343 @@ def slugify(text: str) -> str:
     text = re.sub(r'[^\w\u4e00-\u9fa5-]+', '-', text)
     text = re.sub(r'-+', '-', text).strip('-')
     return text or 'untitled'
+
+
+def iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def bundle_repo_path(*parts: str) -> Path:
+    base = SITE_REPO_ROOT / SHARED_NOTES_DIRNAME if SITE_REPO_ROOT != Path('.') else Path(SHARED_NOTES_DIRNAME)
+    path = base
+    for part in parts:
+        path = path / part
+    return path
+
+
+def run_git(args: list[str], cwd: Path | None = None, check: bool = True, text: bool = True) -> subprocess.CompletedProcess:
+    try:
+        result = subprocess.run(
+            ['git', *args],
+            cwd=str(cwd or REPO_ROOT),
+            check=False,
+            capture_output=True,
+            text=text,
+            encoding='utf-8' if text else None,
+            errors='ignore' if text else None,
+        )
+    except OSError as exc:
+        raise RuntimeError(f'无法执行 git：{exc}') from exc
+    if check and result.returncode != 0:
+        detail = (result.stderr or result.stdout or '').strip()
+        raise RuntimeError(detail or f'git {" ".join(args)} 执行失败')
+    return result
+
+
+def ensure_git_remote_origin() -> str:
+    if REPO_ROOT == ROOT and not (REPO_ROOT / '.git').exists():
+        raise RuntimeError('当前目录不是 Git 仓库，无法上传共享笔记')
+    result = run_git(['remote', 'get-url', 'origin'])
+    remote = result.stdout.strip()
+    if not remote:
+        raise RuntimeError('没有检测到 origin 远程仓库，无法上传共享笔记')
+    return remote
+
+
+def normalize_share_value(value: str | None, label: str) -> str:
+    text = (value or '').strip()
+    if not text:
+        raise ValueError(f'{label}不能为空')
+    text = re.sub(r'\s+', '', text)
+    text = re.sub(r'[^\w\u4e00-\u9fa5-]+', '_', text, flags=re.UNICODE)
+    text = re.sub(r'_+', '_', text).strip('._-/')
+    if not text:
+        raise ValueError(f'{label}不能为空')
+    if text.endswith('.lock') or '..' in text or '@{' in text:
+        raise ValueError(f'{label}格式不合法')
+    return text[:80]
+
+
+def build_shared_branch_name(academy: str, major: str, year: str) -> tuple[str, dict]:
+    academy_name = normalize_share_value(academy, '学院')
+    major_name = normalize_share_value(major, '专业')
+    year_name = normalize_share_value(year, '年级')
+    branch_name = f'{academy_name}_{major_name}_{year_name}'
+    if branch_name.startswith('/') or branch_name.endswith('/') or branch_name.startswith('.'):
+        raise ValueError('生成的分支名不合法')
+    return branch_name, {
+        'academy': academy_name,
+        'major': major_name,
+        'year': year_name,
+    }
+
+
+def parse_github_repo(remote_url: str) -> dict:
+    text = (remote_url or '').strip()
+    match = re.search(r'github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?$', text)
+    if not match:
+        return {'remoteUrl': text, 'hostedOnGitHub': False}
+    return {
+        'remoteUrl': text,
+        'hostedOnGitHub': True,
+        'owner': match.group('owner'),
+        'repo': match.group('repo'),
+    }
+
+
+def remote_branch_exists(branch_name: str) -> bool:
+    result = run_git(['ls-remote', '--heads', 'origin', branch_name], check=False)
+    return bool(result.stdout.strip())
+
+
+def fetch_remote_branch(branch_name: str) -> None:
+    run_git(['fetch', '--depth', '1', 'origin', f'+refs/heads/{branch_name}:refs/remotes/origin/{branch_name}'])
+
+
+def safe_rmtree(path: Path) -> None:
+    if path.exists():
+        shutil.rmtree(path)
+
+
+def build_shared_documents_preview(documents: list[dict]) -> list[dict]:
+    preview = []
+    for doc in sort_documents_for_share(documents):
+        preview.append({
+            'title': doc.get('title', ''),
+            'slug': doc.get('slug', ''),
+            'group': normalize_group_name(doc.get('group')),
+            'type': doc.get('type', 'import'),
+            'path': doc.get('path', ''),
+            'order': int(doc.get('order', 0) or 0),
+        })
+    return preview
+
+
+def sort_documents_for_share(documents: list[dict]) -> list[dict]:
+    def key(doc: dict) -> tuple[str, int, int, str]:
+        group = normalize_group_name(doc.get('group'))
+        try:
+            order = int(doc.get('order', 999999))
+        except (TypeError, ValueError):
+            order = 999999
+        title = doc.get('title', '')
+        type_rank = 0 if doc.get('type') == 'main' else 1
+        return (group.lower(), type_rank, order, title.lower())
+
+    return sorted(documents, key=key)
+
+
+def build_shared_manifest(branch_name: str, profile: dict, remote_url: str, library_data: dict) -> dict:
+    documents = sort_documents_for_share(library_data.get('documents', []))
+    groups = library_data.get('groups', [])
+    repo_info = parse_github_repo(remote_url)
+    bundle_root = bundle_repo_path().as_posix()
+    return {
+        'schemaVersion': 1,
+        'branchName': branch_name,
+        'academy': profile['academy'],
+        'major': profile['major'],
+        'year': profile['year'],
+        'publishedAt': iso_now(),
+        'documentCount': len(documents),
+        'groupCount': len(groups),
+        'bundleRoot': bundle_root,
+        'siteRoot': '.' if SITE_REPO_ROOT == Path('.') else SITE_REPO_ROOT.as_posix(),
+        'repo': repo_info,
+        'documents': build_shared_documents_preview(documents),
+    }
+
+
+def prepare_shared_bundle(worktree_root: Path, manifest: dict) -> Path:
+    site_root = worktree_root / SITE_REPO_ROOT if SITE_REPO_ROOT != Path('.') else worktree_root
+    bundle_root = site_root / SHARED_NOTES_DIRNAME
+    safe_rmtree(bundle_root)
+    shutil.copytree(CONTENT_DIR, bundle_root / 'content')
+    (bundle_root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
+    return bundle_root
+
+
+def git_status_for_path(worktree_root: Path, repo_path: Path) -> str:
+    result = run_git(['status', '--short', '--', repo_path.as_posix()], cwd=worktree_root)
+    return result.stdout.strip()
+
+
+def publish_shared_notes_bundle(academy: str, major: str, year: str) -> dict:
+    ensure_dirs()
+    remote_url = ensure_git_remote_origin()
+    branch_name, profile = build_shared_branch_name(academy, major, year)
+    library_data = load_library()
+    manifest = build_shared_manifest(branch_name, profile, remote_url, library_data)
+    branch_exists = remote_branch_exists(branch_name)
+
+    with tempfile.TemporaryDirectory(prefix='note-share-publish-') as temp_dir:
+        worktree_root = Path(temp_dir) / 'worktree'
+        run_git(['worktree', 'add', '--detach', str(worktree_root), 'HEAD'])
+        try:
+            if branch_exists:
+                fetch_remote_branch(branch_name)
+                run_git(['checkout', '-B', branch_name, f'origin/{branch_name}'], cwd=worktree_root)
+            else:
+                run_git(['checkout', '-B', branch_name], cwd=worktree_root)
+
+            prepare_shared_bundle(worktree_root, manifest)
+            shared_repo_path = bundle_repo_path()
+            status_text = git_status_for_path(worktree_root, shared_repo_path)
+            if status_text:
+                run_git(['add', '--', shared_repo_path.as_posix()], cwd=worktree_root)
+                run_git(
+                    [
+                        '-c', f'user.name={AUTOMATION_COMMIT_NAME}',
+                        '-c', f'user.email={AUTOMATION_COMMIT_EMAIL}',
+                        'commit',
+                        '-m',
+                        f'Publish shared notes for {branch_name}',
+                    ],
+                    cwd=worktree_root,
+                )
+            run_git(['push', '-u', 'origin', f'{branch_name}:{branch_name}'], cwd=worktree_root)
+            return {
+                'ok': True,
+                'branchName': branch_name,
+                'profile': profile,
+                'remoteUrl': remote_url,
+                'documentCount': manifest['documentCount'],
+                'groupCount': manifest['groupCount'],
+                'changed': bool(status_text),
+            }
+        finally:
+            run_git(['worktree', 'remove', '--force', str(worktree_root)], check=False)
+
+
+def load_remote_manifest(branch_name: str) -> dict:
+    fetch_remote_branch(branch_name)
+    manifest_path = bundle_repo_path('manifest.json').as_posix()
+    result = run_git(['show', f'refs/remotes/origin/{branch_name}:{manifest_path}'])
+    data = json.loads(result.stdout)
+    if not isinstance(data, dict):
+        raise ValueError('共享笔记元数据格式不正确')
+    return data
+
+
+def list_shared_note_bundles() -> list[dict]:
+    ensure_git_remote_origin()
+    result = run_git(['ls-remote', '--heads', 'origin'])
+    bundles: list[dict] = []
+    for line in result.stdout.splitlines():
+        try:
+            _sha, ref = line.split('\t', 1)
+        except ValueError:
+            continue
+        if not ref.startswith('refs/heads/'):
+            continue
+        branch_name = ref[len('refs/heads/'):]
+        if branch_name.count('_') < 2:
+            continue
+        try:
+            manifest = load_remote_manifest(branch_name)
+        except Exception:
+            continue
+        bundles.append({
+            'branchName': manifest.get('branchName') or branch_name,
+            'academy': manifest.get('academy', ''),
+            'major': manifest.get('major', ''),
+            'year': manifest.get('year', ''),
+            'publishedAt': manifest.get('publishedAt', ''),
+            'documentCount': int(manifest.get('documentCount', 0) or 0),
+            'groupCount': int(manifest.get('groupCount', 0) or 0),
+            'documents': manifest.get('documents', [])[:10],
+            'repo': manifest.get('repo', {}),
+        })
+    bundles.sort(key=lambda item: item.get('publishedAt', ''), reverse=True)
+    return bundles
+
+
+def rewrite_shared_markdown_assets(markdown: str, source_slug: str, target_slug: str) -> str:
+    replacements = [
+        (f'./content/assets/{source_slug}/', f'./content/assets/{target_slug}/'),
+        (f'content/assets/{source_slug}/', f'content/assets/{target_slug}/'),
+        (f'/content/assets/{source_slug}/', f'/content/assets/{target_slug}/'),
+    ]
+    text = markdown
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return text
+
+
+def import_shared_notes_bundle(branch_name: str) -> dict:
+    ensure_dirs()
+    branch_name = (branch_name or '').strip()
+    if not branch_name:
+        raise ValueError('分支名不能为空')
+    manifest = load_remote_manifest(branch_name)
+    with tempfile.TemporaryDirectory(prefix='note-share-import-') as temp_dir:
+        worktree_root = Path(temp_dir) / 'worktree'
+        run_git(['worktree', 'add', '--detach', str(worktree_root), f'refs/remotes/origin/{branch_name}'])
+        try:
+            site_root = worktree_root / SITE_REPO_ROOT if SITE_REPO_ROOT != Path('.') else worktree_root
+            bundle_root = site_root / SHARED_NOTES_DIRNAME / 'content'
+            bundle_library_file = bundle_root / 'library.json'
+            if not bundle_library_file.exists():
+                raise FileNotFoundError('共享分支中没有可导入的笔记索引')
+            bundle_library = normalize_library_data(json.loads(bundle_library_file.read_text(encoding='utf-8')))
+            share_group_root = '/'.join(filter(None, ['共享笔记', manifest.get('academy', ''), manifest.get('major', ''), manifest.get('year', '')]))
+            branch_slug = slugify(branch_name)
+            imported: list[dict] = []
+
+            for doc in sort_documents_for_share(bundle_library.get('documents', [])):
+                source_rel = validate_doc_path(doc.get('path', '')).lstrip('./')
+                if not source_rel:
+                    continue
+                source_file = (site_root / SHARED_NOTES_DIRNAME / source_rel).resolve()
+                if not source_file.exists() or not source_file.is_file():
+                    continue
+                original_slug = doc.get('slug') or slugify(doc.get('title') or source_file.stem)
+                target_slug = slugify(f'{branch_slug}-{original_slug}')
+                target_path = f'content/imports/{target_slug}.md'
+                markdown = source_file.read_text(encoding='utf-8')
+                markdown = rewrite_shared_markdown_assets(markdown, original_slug, target_slug)
+
+                source_asset_dir = site_root / SHARED_NOTES_DIRNAME / 'content' / 'assets' / original_slug
+                target_asset_dir = ASSET_DIR / target_slug
+                if source_asset_dir.exists() and source_asset_dir.is_dir():
+                    safe_rmtree(target_asset_dir)
+                    shutil.copytree(source_asset_dir, target_asset_dir)
+
+                target_file = ROOT / target_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                target_file.write_text(markdown, encoding='utf-8')
+
+                original_group = normalize_group_name(doc.get('group'))
+                target_group = '/'.join(filter(None, [share_group_root, original_group]))
+                source_url = doc.get('sourceUrl') or f'github-branch:{branch_name}'
+                try:
+                    order_value = int(doc.get('order', 0) or 0)
+                except (TypeError, ValueError):
+                    order_value = None
+                update_library_entry(
+                    target_path,
+                    doc.get('title') or target_slug,
+                    target_slug,
+                    'import',
+                    source_url,
+                    target_group,
+                    order_value,
+                )
+                imported.append({
+                    'title': doc.get('title') or target_slug,
+                    'slug': target_slug,
+                    'path': f'./{target_path}',
+                    'group': target_group,
+                })
+
+            return {
+                'ok': True,
+                'branchName': branch_name,
+                'documentCount': len(imported),
+                'documents': imported,
+            }
+        finally:
+            run_git(['worktree', 'remove', '--force', str(worktree_root)], check=False)
 
 
 def ensure_dirs() -> None:
@@ -741,6 +1110,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({'error': str(exc)}, 500)
         if parsed.path == '/api/library':
             return self._send_json(load_library())
+        if parsed.path == '/api/shared-notes':
+            try:
+                return self._send_json({'ok': True, 'items': list_shared_note_bundles()})
+            except Exception as exc:
+                return self._send_json({'error': str(exc)}, 500)
         return super().do_GET()
 
     def do_POST(self):
@@ -752,6 +1126,18 @@ class Handler(SimpleHTTPRequestHandler):
                 print('[shutdown] requested from web ui')
                 schedule_shutdown_via_bat()
                 return
+            if parsed.path == '/api/publish-shared-notes':
+                length = int(self.headers.get('Content-Length', '0'))
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                result = publish_shared_notes_bundle(payload.get('academy'), payload.get('major'), payload.get('year'))
+                print(f'[share:publish] {result["branchName"]} docs={result["documentCount"]}')
+                return self._send_json(result)
+            if parsed.path == '/api/import-shared-notes':
+                length = int(self.headers.get('Content-Length', '0'))
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                result = import_shared_notes_bundle(str(payload.get('branchName') or '').strip())
+                print(f'[share:import] {result["branchName"]} docs={result["documentCount"]}')
+                return self._send_json(result)
             if parsed.path == '/api/delete-document':
                 length = int(self.headers.get('Content-Length', '0'))
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
