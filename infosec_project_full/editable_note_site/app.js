@@ -10,11 +10,11 @@ const saveBtn = document.getElementById('saveBtn');
 const deleteBtn = document.getElementById('deleteBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const clearLocalBtn = document.getElementById('clearLocalBtn');
+const exitSiteBtn = document.getElementById('exitSiteBtn');
 const importPreviewBtn = document.getElementById('importPreviewBtn');
 const importSaveBtn = document.getElementById('importSaveBtn');
 const refreshLibraryBtn = document.getElementById('refreshLibraryBtn');
 const editToggleBtn = document.getElementById('editToggleBtn');
-<<<<<<< HEAD
 const toggleLeftSidebarBtn = document.getElementById('toggleLeftSidebarBtn');
 const toggleRightSidebarBtn = document.getElementById('toggleRightSidebarBtn');
 const toggleRichBtn = document.getElementById('toggleRichBtn');
@@ -22,12 +22,6 @@ const toggleThemeBtn = document.getElementById('toggleThemeBtn');
 const toggleWidthBtn = document.getElementById('toggleWidthBtn');
 const toggleFocusBtn = document.getElementById('toggleFocusBtn');
 const newBlankBtn = document.getElementById('newBlankBtn');
-=======
-const toggleSidebarBtn = document.getElementById('toggleSidebarBtn');
-const toggleRichBtn = document.getElementById('toggleRichBtn');
-const toggleThemeBtn = document.getElementById('toggleThemeBtn');
-const toggleWidthBtn = document.getElementById('toggleWidthBtn');
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 const closeEditorBtn = document.getElementById('closeEditorBtn');
 const docSelect = document.getElementById('docSelect');
 const docTitleInput = document.getElementById('docTitle');
@@ -48,12 +42,12 @@ const modeText = document.getElementById('modeText');
 const permalink = document.getElementById('permalink');
 const editorDrawer = document.getElementById('editorDrawer');
 const richToolbar = document.getElementById('richToolbar');
-<<<<<<< HEAD
 const leftResizer = document.getElementById('leftResizer');
 const rightResizer = document.getElementById('rightResizer');
 const toggleTreeBtn = document.getElementById('toggleTreeBtn');
 const closeTreeDrawerBtn = document.getElementById('closeTreeDrawerBtn');
 const treeDrawer = document.getElementById('treeDrawer');
+const topbar = document.querySelector('.topbar');
 const groupFilterSelect = document.getElementById('groupFilterSelect');
 const currentGroupSelect = document.getElementById('currentGroupSelect');
 const groupInput = document.getElementById('groupInput');
@@ -70,8 +64,6 @@ const renameGroupBtn = document.getElementById('renameGroupBtn');
 const updateGroupParentBtn = document.getElementById('updateGroupParentBtn');
 const deleteGroupBtn = document.getElementById('deleteGroupBtn');
 const groupManageHint = document.getElementById('groupManageHint');
-=======
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 
 let library = [];
 let libraryGroups = [];
@@ -83,16 +75,10 @@ let rightSidebarCollapsed = false;
 let richMode = false;
 let focusMode = false;
 let tocVisible = true;
-<<<<<<< HEAD
-=======
-let sidebarCollapsed = false;
-let richMode = false;
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 let darkTheme = false;
 let readingDensity = 'standard';
 let searchTimer = null;
 let searchBuildToken = 0;
-<<<<<<< HEAD
 const LAYOUT_STORAGE_KEY = 'editable-note-site-layout';
 const GROUP_COLLAPSE_STORAGE_KEY = 'editable-note-site-group-collapse';
 const TREE_DRAWER_STORAGE_KEY = 'editable-note-site-tree-drawer-open';
@@ -135,9 +121,6 @@ let collapsedGroups = readCollapsedGroups();
 let draggedDocPath = null;
 let treeDrawerOpen = readTreeDrawerState();
 let applyingRichShortcut = false;
-=======
-const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -147,7 +130,6 @@ function setStatus(text, isError = false) {
   statusText.classList.toggle('status-ok', !isError);
 }
 
-<<<<<<< HEAD
 function showIllegalAction(message) {
   const text = `非法操作：${message}`;
   setStatus(text, true);
@@ -159,6 +141,110 @@ function showRequestError(prefix, err) {
   const message = err?.message || String(err);
   setStatus(`${prefix}：${message}`, true);
   alert(`${prefix}：${message}\n\n请确认当前是通过 python scripts/server.py 或 begin.bat 启动的本地站点。`);
+}
+
+function leaveAppPageAfterShutdown() {
+  const html = `<!DOCTYPE html>
+  <html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>本地站点已退出</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+        background: linear-gradient(160deg, #f7f4ee 0%, #f1ece3 100%);
+        color: #1a1a1a;
+        font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+      }
+      main {
+        width: min(560px, 100%);
+        padding: 28px 32px;
+        border: 1px solid #d9d3c7;
+        border-radius: 18px;
+        background: rgba(255, 253, 249, 0.96);
+        box-shadow: 0 12px 28px rgba(26, 26, 26, 0.08);
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-family: "Georgia", "Times New Roman", serif;
+        font-size: clamp(30px, 4vw, 46px);
+      }
+      p {
+        margin: 0;
+        line-height: 1.8;
+        color: #6e6a62;
+        font-size: 16px;
+      }
+      button {
+        margin-top: 18px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid #d9d3c7;
+        background: #fff;
+        cursor: pointer;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>本地站点已退出</h1>
+      <p>服务已经停止。当前浏览器若未自动关闭，直接关闭此页即可。</p>
+      <button id="closeBtn" type="button">关闭页面</button>
+    </main>
+    <script>
+      const tryClose = () => {
+        window.open('', '_self');
+        window.close();
+      };
+      document.getElementById('closeBtn')?.addEventListener('click', tryClose);
+      setTimeout(tryClose, 120);
+      setTimeout(() => {
+        if (!document.hidden) {
+          document.body.setAttribute('data-close-blocked', '1');
+        }
+      }, 320);
+    <\/script>
+  </body>
+  </html>`;
+  window.location.replace(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}
+
+async function requestShutdownSignal() {
+  try {
+    if (navigator.sendBeacon) {
+      const accepted = navigator.sendBeacon('/api/shutdown', new Blob(['{}'], { type: 'application/json' }));
+      if (accepted) return;
+    }
+  } catch (_) {
+  }
+  try {
+    await fetch('/api/shutdown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      cache: 'no-store',
+      keepalive: true
+    });
+  } catch (_) {
+    // The server may terminate before the browser receives a response.
+  }
+}
+
+async function shutdownSite() {
+  if (STATIC_HOST) {
+    throw new Error('当前是静态只读模式，无法关闭本地服务');
+  }
+  if (exitSiteBtn) exitSiteBtn.disabled = true;
+  setStatus('正在退出本地站点…');
+  await requestShutdownSignal();
+  leaveAppPageAfterShutdown();
 }
 
 function looksLikeIllegalAction(message) {
@@ -311,13 +397,6 @@ function applyTheme(isDark) {
     toggleThemeBtn.textContent = darkTheme ? '切换浅色报刊' : '切换夜间雅黑';
   }
   localStorage.setItem(THEME_STORAGE_KEY, darkTheme ? 'dark' : 'light');
-=======
-function applyTheme(isDark) {
-  darkTheme = !!isDark;
-  document.body.classList.toggle('theme-dark', darkTheme);
-  toggleThemeBtn.textContent = darkTheme ? '切换浅色报刊' : '切换夜间雅黑';
-  localStorage.setItem('editable-note-site:theme', darkTheme ? 'dark' : 'light');
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 }
 
 function applyReadingDensity(mode) {
@@ -334,16 +413,11 @@ function applyReadingDensity(mode) {
     };
     toggleWidthBtn.textContent = labelMap[next];
   }
-<<<<<<< HEAD
   localStorage.setItem(READING_DENSITY_STORAGE_KEY, next);
-=======
-  localStorage.setItem('editable-note-site:reading-density', next);
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 }
 
 function cycleReadingDensity() {
   const order = ['compact', 'standard', 'wide'];
-<<<<<<< HEAD
   const index = order.indexOf(readingDensity);
   const next = order[(index + 1) % order.length];
   applyReadingDensity(next);
@@ -402,6 +476,12 @@ function applyTreeDrawerState() {
   toggleTreeBtn.textContent = treeDrawerOpen ? '收起笔记树' : '笔记树';
 }
 
+function updateStickyOffset() {
+  const topbarHeight = topbar?.offsetHeight || 0;
+  const stickyOffset = Math.max(96, topbarHeight + 18);
+  document.documentElement.style.setProperty('--sticky-top-offset', `${stickyOffset}px`);
+}
+
 function setTreeDrawerOpen(nextOpen) {
   treeDrawerOpen = Boolean(nextOpen);
   persistTreeDrawerState();
@@ -457,12 +537,6 @@ function startResize(side, evt) {
 
   document.addEventListener('pointermove', handleMove);
   document.addEventListener('pointerup', handleUp);
-=======
-  const idx = order.indexOf(readingDensity);
-  const next = order[(idx + 1) % order.length];
-  applyReadingDensity(next);
-  setStatus(`已切换阅读宽度：${next === 'compact' ? '专栏窄栏' : next === 'wide' ? '沉浸宽幅' : '标准宽度'}`);
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 }
 
 function slugify(text) {
@@ -903,10 +977,7 @@ function buildTOC() {
 function render(renderAnchors = true) {
   const processed = preprocess(editor.value);
   preview.innerHTML = marked.parse(processed);
-<<<<<<< HEAD
   decorateRichBlocks();
-=======
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
   if (renderAnchors) attachAnchorIds();
   buildTOC();
   localStorage.setItem(currentCacheKey(), editor.value);
@@ -922,7 +993,6 @@ function htmlToMarkdown(html) {
   return editor.value;
 }
 
-<<<<<<< HEAD
 function decorateRichBlocks(root = preview) {
   root.querySelectorAll('pre').forEach(pre => {
     const code = pre.querySelector('code');
@@ -1269,8 +1339,6 @@ function insertRichQuoteBlock() {
   return true;
 }
 
-=======
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 function execRichCommand(cmd, value = null) {
   if (typeof document.execCommand === 'function') {
     return document.execCommand(cmd, false, value);
@@ -1305,24 +1373,10 @@ function updateRichMode(enabled) {
   }
 }
 
-<<<<<<< HEAD
-=======
-function toggleSidebar() {
-  sidebarCollapsed = !sidebarCollapsed;
-  document.body.classList.toggle('sidebar-collapsed', sidebarCollapsed);
-  toggleSidebarBtn.textContent = sidebarCollapsed ? '展开边栏（退出专注）' : '收起边栏（专注模式）';
-  toggleSidebarBtn.setAttribute('aria-expanded', String(!sidebarCollapsed));
-  if (sidebarCollapsed) {
-    setStatus('已进入专注模式：边栏已收起，笔记占满屏幕');
-  } else {
-    setStatus('已展开边栏');
-  }
-}
-
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 function openEditor(force = true) {
   if (richMode && force) updateRichMode(false);
   editorDrawer.classList.toggle('hidden', !force);
+  document.body.classList.toggle('editor-open', force);
   document.body.classList.toggle('reading-mode', !force);
   if (!richMode) modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
   editToggleBtn.textContent = force ? '返回阅读模式' : '编辑当前文档';
@@ -1695,7 +1749,6 @@ async function createManagedGroup() {
     showIllegalAction('新建子分组时，请只输入这一层的名称，不要再包含 /');
     return;
   }
-<<<<<<< HEAD
   const parent = normalizeGroupName(parentGroupSelect.value);
   const fullName = parent ? `${parent}/${leafName}` : leafName;
   await createGroup(leafName, parent);
@@ -1847,12 +1900,6 @@ async function deleteDocument(doc = currentDoc) {
 async function importUrl(mode) {
   const url = validateUrlOrThrow(urlInput.value);
   const pendingGroup = getPendingGroupValue() ? validateGroupNameOrThrow(getPendingGroupValue()) : '';
-=======
-  if (!/^https?:\/\//i.test(url)) {
-    alert('请输入以 http:// 或 https:// 开头的网址');
-    return;
-  }
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
   setStatus('正在抓取网址内容，请稍候…');
   const data = await fetchJson(`/api/import-url?url=${encodeURIComponent(url)}`);
   const meta = data.meta || {};
@@ -1873,10 +1920,7 @@ async function importUrl(mode) {
     render(!richMode);
     openEditor(true);
     docPath.textContent = 'adhoc / 未保存导入';
-<<<<<<< HEAD
     updateGroupToolbarState();
-=======
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
     setStatus(`已导入到编辑区：${data.title}（${importSummary}）`);
     return;
   }
@@ -1976,7 +2020,6 @@ searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(runSearch, 160);
 });
-<<<<<<< HEAD
 groupFilterSelect.addEventListener('change', () => {
   currentGroupFilter = groupFilterSelect.value;
   renderLibraryList();
@@ -2056,8 +2099,6 @@ moveDocDownBtn.addEventListener('click', async () => {
     else showRequestError('顺序调整失败', err);
   }
 });
-=======
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 refreshLibraryBtn.addEventListener('click', async () => {
   await loadLibrary();
   await rebuildSearchIndex();
@@ -2093,6 +2134,16 @@ clearLocalBtn.addEventListener('click', () => {
   Object.keys(localStorage).filter(key => key.startsWith(LOCAL_CACHE_PREFIX)).forEach(key => localStorage.removeItem(key));
   setStatus('浏览器缓存已清空');
 });
+if (exitSiteBtn) {
+  exitSiteBtn.addEventListener('click', async () => {
+    try {
+      await shutdownSite();
+    } catch (err) {
+      exitSiteBtn.disabled = false;
+      showRequestError('退出失败', err);
+    }
+  });
+}
 
 deleteBtn.addEventListener('click', async () => {
   try {
@@ -2129,7 +2180,6 @@ importSaveBtn.addEventListener('click', async () => {
 
 editToggleBtn.addEventListener('click', () => openEditor(editorDrawer.classList.contains('hidden')));
 closeEditorBtn.addEventListener('click', () => openEditor(false));
-<<<<<<< HEAD
 toggleLeftSidebarBtn.addEventListener('click', toggleLeftSidebar);
 toggleRightSidebarBtn.addEventListener('click', toggleRightSidebar);
 toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
@@ -2150,15 +2200,13 @@ if (toggleTocBtn) {
 }
 leftResizer.addEventListener('pointerdown', evt => startResize('left', evt));
 rightResizer.addEventListener('pointerdown', evt => startResize('right', evt));
-window.addEventListener('resize', applyLayoutState);
-=======
-toggleSidebarBtn.addEventListener('click', toggleSidebar);
-toggleRichBtn.addEventListener('click', () => updateRichMode(!richMode));
-toggleThemeBtn.addEventListener('click', () => applyTheme(!darkTheme));
-if (toggleWidthBtn) {
-  toggleWidthBtn.addEventListener('click', cycleReadingDensity);
+window.addEventListener('resize', () => {
+  applyLayoutState();
+  updateStickyOffset();
+});
+if (window.ResizeObserver && topbar) {
+  new ResizeObserver(updateStickyOffset).observe(topbar);
 }
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
 
 preview.addEventListener('input', () => {
   if (!richMode) return;
@@ -2190,37 +2238,6 @@ richToolbar.addEventListener('click', evt => {
     execRichCommand(cmd, null);
   }
   syncRichSource();
-});
-
-
-
-preview.addEventListener('input', () => {
-  if (!richMode) return;
-  editor.value = htmlToMarkdown(preview.innerHTML);
-  localStorage.setItem(currentCacheKey(), editor.value);
-  buildTOC();
-});
-
-richToolbar.addEventListener('click', evt => {
-  const btn = evt.target.closest('button[data-cmd]');
-  if (!btn || !richMode) return;
-  const cmd = btn.dataset.cmd;
-  preview.focus();
-  if (cmd === 'h2') {
-    execRichCommand('formatBlock', 'h2');
-  } else if (cmd === 'blockquote') {
-    execRichCommand('formatBlock', 'blockquote');
-  } else if (cmd === 'code') {
-    execRichCommand('insertHTML', '<code>代码</code>');
-  } else if (cmd === 'createLink') {
-    const link = prompt('请输入链接地址：', 'https://');
-    if (link) execRichCommand('createLink', link);
-  } else {
-    execRichCommand(cmd, null);
-  }
-  editor.value = htmlToMarkdown(preview.innerHTML);
-  localStorage.setItem(currentCacheKey(), editor.value);
-  buildTOC();
 });
 
 window.addEventListener('hashchange', async () => {
@@ -2258,18 +2275,18 @@ document.addEventListener('keydown', async evt => {
 });
 
 async function init() {
-<<<<<<< HEAD
   applyTheme(localStorage.getItem(THEME_STORAGE_KEY) === 'dark');
   applyReadingDensity(localStorage.getItem(READING_DENSITY_STORAGE_KEY) || 'standard');
   focusMode = localStorage.getItem(FOCUS_MODE_STORAGE_KEY) === '1';
   tocVisible = localStorage.getItem(TOC_VISIBLE_STORAGE_KEY) !== '0';
-=======
-  applyTheme(localStorage.getItem('editable-note-site:theme') === 'dark');
-  applyReadingDensity(localStorage.getItem('editable-note-site:reading-density') || 'standard');
->>>>>>> c90aea30e63a997853bf489f28ec218544db4196
+  if (exitSiteBtn) {
+    exitSiteBtn.disabled = STATIC_HOST;
+    exitSiteBtn.title = STATIC_HOST ? '静态只读模式下无法关闭本地服务' : '停止本地服务并关闭页面';
+  }
   if (STATIC_HOST) {
     setStatus('当前是静态只读模式：可阅读、搜索、导航；保存和网址导入需要本地服务端。');
   }
+  updateStickyOffset();
   applyLayoutState();
   applyTreeDrawerState();
   applyTocState();
