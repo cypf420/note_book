@@ -5,13 +5,13 @@
       "slug": "新手引导",
       "path": "./content/imports/新手引导.md",
       "type": "import",
-      "group": "帮助",
+      "group": "新手引导",
       "order": 1
     }
   ],
   "groups": [
     {
-      "name": "帮助",
+      "name": "新手引导",
       "order": 1
     }
   ]

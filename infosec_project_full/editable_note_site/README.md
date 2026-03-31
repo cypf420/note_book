@@ -1,318 +1,204 @@
 # YCY 本地笔记工作台
 
-一个面向本地知识库整理的 Markdown 工作台。它支持读取站点内已有文档、抓取网页正文、下载网页图片、将内容转成 Markdown 并保存回本地目录，同时提供搜索、目录导航和阅读/编辑一体化界面。
+这是当前站点的正式说明文档。界面已经调整为 VS Code 风格工作台，默认编辑模式为所见即所得，Markdown 仍然是唯一真实落盘格式。
 
-## 1. 项目用途
+## 1. 这个站点能做什么
 
 - 把网页正文抓取为本地 Markdown
-- 自动下载网页中的图片资源
-- 将导入结果纳入站点文档库
-- 在浏览器中继续阅读、检索、编辑和导出
-- 删除不再需要的导入笔记，并同步清理资源目录
-- 对笔记进行分组、筛选、分组折叠、拖拽排序，以及新建/重命名/删除空分组
+- 自动下载网页图片并改写为本地资源引用
+- 用文件树和文件夹管理本地笔记
+- 在浏览器里直接做所见即所得编辑
+- 需要时打开 Markdown 源码做精确修改
+- 全文搜索、目录跳转、导出 Markdown
+- 上传共享笔记到 GitHub 社区，或从社区导入到本地
 
-## 2. 抓取后的内容保存在哪里
+## 2. 最快启动方式
 
-这是这个项目最关键的落盘位置：
+在当前目录执行：
 
-- 导入后的 Markdown 文档：`content/imports/<slug>.md`
-- 抓取网页时下载的图片：`content/assets/<slug>/`
-- 文档索引：`content/library.json`
-
-说明：
-
-- `<slug>` 来自网页标题，经过 `slugify()` 处理。
-- 点击“导入并保存到站点”后，Markdown 会写入 `content/imports/`，并自动更新 `content/library.json`。
-- 分组信息和组内顺序保存在 `content/library.json` 的 `groups`、`group`、`order` 字段中。
-- 调用 `/api/import-url` 时，服务端会先把网页图片下载到 `content/assets/<slug>/`，即使当前只是“导入到编辑区”，图片目录也可能已经生成。
-- 未保存到文件系统的临时编辑内容会保存在浏览器 `localStorage`，键前缀为 `editable-note-site-cache:`。
-- 站内已经内置一篇面向使用者的引导文档：`content/imports/新手引导.md`，并同步保留了一份外部说明：`../新手引导.md`。
-
-## 3. 目录结构
-
-```text
-editable_note_site/
-├── index.html                  # 前端页面
-├── style.css                   # 前端样式
-├── app.js                      # 前端交互逻辑
-├── README.md                   # 技术文档
-├── SETUP.md                    # 快速配置说明
-├── begin.bat                   # Windows 一键启动入口（推荐）
-├── scripts/begin.ps1           # begin.bat 调用的 PowerShell 启动器
-├── setup.bat                   # 兼容入口，内部跳转到 begin.bat
-├── 启动网站.bat                # 兼容入口，内部跳转到 begin.bat
-├── requirements.txt            # Python 依赖
-├── content/
-│   ├── library.json            # 文档索引
-│   ├── imports/                # 导入后的 Markdown
-│   └── assets/                 # 导入网页时下载的图片
-└── scripts/
-    ├── server.py               # 本地 HTTP 服务 + 导入/保存 API
-    ├── fetch_note.py           # 旧版兼容抓取脚本
-    ├── fetch_assets.py         # 拉取远端图片资源
-    └── fetch_all.py            # 批量执行抓取脚本
-```
-
-## 4. 运行方式
-
-### 4.1 Windows 双击启动
-
-推荐直接双击：
-
-```text
+```bat
 begin.bat
 ```
 
-脚本会按以下顺序处理：
-
-1. 如果检测到 Conda，则优先使用或自动创建 `note_book` 环境
-2. 如果没有 Conda，则退回 `py -3` 或 `python`
-3. 自动检查 `requests`、`beautifulsoup4`、`markdownify`
-4. 缺依赖时自动执行安装
-5. 启动 `scripts/server.py`
-
-服务启动后：
-
-- 终端会打印实际访问地址
-- 默认地址是 `http://127.0.0.1:8000`
-- 如果 8000 端口被占用，会自动尝试后续端口
-- 设置了 `AUTO_OPEN_BROWSER=1` 时会自动打开浏览器
-- `setup.bat` 与 `启动网站.bat` 现在都只作为兼容入口，内部会跳转到 `begin.bat`
-
-### 4.2 手动启动
+或手动执行：
 
 ```bash
 pip install -r requirements.txt
 python scripts/server.py
 ```
 
-也可以使用环境变量：
-
-```bash
-set HOST=127.0.0.1
-set PORT=8000
-set AUTO_OPEN_BROWSER=1
-python scripts/server.py
-```
-
-### 4.3 本地抓取文件转 Markdown
-
-如果你已经把网页抓成了本地文件，也可以直接做一次“所见内容 -> Markdown”的转换：
-
-```bash
-python scripts/render_to_markdown.py path/to/page.html -o content/imports/page.md
-```
-
-说明：
-
-- 支持 `html`、`markdown`、`text` 三类输入，默认自动识别
-- 会优先修复常见乱码，例如 UTF-8 被错误按 Latin-1 / CP1252 解码的情况
-- 命令行里可以用 `--type html|markdown|text` 强制指定输入类型
-- 传入 `-` 时会从标准输入读取内容
-- 如果输入的是 URL，会优先尝试使用真实浏览器渲染页面，再提取最终 DOM 转 Markdown
-- 网页正文中的链接会尽量按原网页地址保存为可点击链接，避免导入后跳到本地站点的相对路径
-
-例如：
-
-```bash
-python scripts/render_to_markdown.py https://example.com/article --render browser -o content/imports/article.md
-```
-
-浏览器渲染说明：
-
-- Windows 下会优先复用本机已安装的 Edge，其次尝试 Chrome
-- 如果系统里没有可用的 Chromium 内核浏览器，Playwright 可能需要额外安装浏览器运行时
-- 站内 `导入网址` 接口现在也会优先使用浏览器渲染 HTML 页面，因此更接近你在浏览器里实际看到的内容
-
-## 5. 启动后的访问地址
-
-默认是：
+启动后通常访问：
 
 ```text
 http://127.0.0.1:8000
 ```
 
-`server.py` 启动时会输出类似：
+如果 8000 端口被占用，服务端会自动切换到其他可用端口。
 
-```text
-本地笔记工作台已启动
-访问地址: http://127.0.0.1:8000
-抓取与保存位置:
-  导入后的 Markdown: .../content/imports
-  下载的图片资源: .../content/assets
-  文档索引: .../content/library.json
-```
+## 3. 第一次使用建议
 
-如果默认端口被占用，服务端会自动切换端口，并打印最终地址。
+第一次进入页面后，建议按这个顺序：
 
-## 6. 前后端工作方式
+1. 在左侧 `资源管理器` 打开 `新手引导`
+2. 在 `导入与同步` 面板里试一次“获取网页内容”
+3. 用默认的所见即所得模式直接编辑
+4. 点击保存，把文档落到本地
+5. 需要时再打开 `Markdown 源码`
 
-### 6.1 前端
+## 4. 当前界面结构
 
-前端由三个静态文件构成：
+### 4.1 Activity Bar
 
-- `index.html`
-- `style.css`
-- `app.js`
+左侧最窄一列是 Activity Bar，只显示图标。鼠标停留约 1 秒后会出现名称提示。
 
-主要功能：
+主要入口：
 
-- 左侧文档导航和全文搜索
-- 中间阅读区
-- 右侧 Markdown 抽屉编辑器
-- 支持导入网址、保存、导出、目录跳转
-- 本地缓存未保存内容
+- `资源管理器`：文件树、打开的编辑器、文件夹筛选
+- `搜索`：全文搜索标题和正文
+- `导入与同步`：网页导入、共享上传、共享拉取、导出 Markdown
+- `Markdown 源码`：打开或关闭源码抽屉
+- `设置与维护`：保存、删除、文件夹管理、清缓存、退出站点
+- `切换主题`：浅色 / 深色切换
 
-### 6.2 后端
+### 4.2 资源管理器
 
-后端是一个基于 `SimpleHTTPRequestHandler` 的本地服务，负责两类工作：
+资源管理器采用接近 VS Code Explorer 的交互。
 
-- 提供静态文件访问
-- 提供保存与导入 API
+支持：
 
-核心文件：
+- 展开 / 折叠文件夹
+- 高亮当前文档
+- 新建空白文件
+- 新建空白文件夹
+- 获取网页内容
+- 文件或文件夹右键菜单
+- 文件夹重命名 / 删除
+- 文件重命名 / 删除
 
-- `scripts/server.py`
+说明：
 
-## 7. API 说明
+- Explorer 根层不会显示 `editable_note_site`
+- `新手引导` 是第一个顶层文件夹
+- 右键菜单是主要上下文操作入口
 
-### `GET /api/library`
+### 4.3 编辑区
 
-读取 `content/library.json`，返回当前站点文档索引。
+- 默认模式是所见即所得
+- 打开文档后优先看到正文编辑区
+- `Markdown 源码` 是附加视图，不再作为默认主界面
+- 保存时仍然写回 Markdown 文件
 
-### `GET /api/import-url?url=<encoded_url>`
+常用快捷键：
 
-作用：
+- `Ctrl/Cmd + S`：保存
+- `Esc`：关闭源码抽屉、关闭弹窗
+- `Ctrl/Cmd + E`：打开 / 关闭 Markdown 源码
+
+### 4.4 设置与维护
+
+`设置与维护` 面板中包含：
+
+- 保存当前文档
+- 打开 Markdown 源码
+- 恢复原始内容
+- 删除当前文档
+- 文件夹管理
+- 阅读宽度 / 专注模式 / 清空缓存
+- `退出站点`
+
+退出规则：
+
+- 本地服务模式下，可通过 `退出站点` 停止服务并离开当前页面
+- 静态只读模式下，该按钮会禁用
+
+## 5. 数据保存位置
+
+这是当前站点最重要的落盘路径：
+
+- 文档索引：`content/library.json`
+- 本地 Markdown 文档：`content/imports/*.md`
+- 网页图片资源：`content/assets/<slug>/`
+- 共享分支元数据：`shared_notes/manifest.json`
+- 中央共享索引：`shared_notes/shared-index.json`
+
+说明：
+
+- Markdown 是唯一真实内容格式
+- 所见即所得只是编辑层，不直接作为持久化格式
+- 文件夹、顺序和索引信息统一写在 `content/library.json`
+
+## 6. 网页导入怎么工作
+
+`导入与同步` 面板里的“获取网页内容”支持两种操作：
+
+- 导入到当前编辑区
+- 导入并保存到站点
+
+服务端会：
 
 - 抓取网页正文
-- 下载页面图片到 `content/assets/<slug>/`
-- 将 HTML 转成 Markdown
-- 返回 `{ title, slug, markdown }`
+- 尽量用浏览器渲染后的 DOM 提高还原度
+- 下载网页图片到 `content/assets/<slug>/`
+- 把结果统一转成 Markdown
 
-注意：
+从网页获取的内容导入后，会直接进入所见即所得编辑，不需要先切到源码。
 
-- 这个接口本身不会把 Markdown 写入 `content/imports/`
-- 真正落盘依赖前端随后调用 `/api/save-document`
+## 7. GitHub 共享社区同步
 
-### `POST /api/save-document`
+当前共享同步不是简单上传单个文件，而是完整的社区分支方案。
 
-请求体示例：
+### 7.1 上传规则
 
-```json
-{
-  "path": "content/imports/example.md",
-  "title": "Example",
-  "slug": "example",
-  "markdown": "---\ntitle: Example\n---\n\ncontent",
-  "type": "import",
-  "sourceUrl": "https://example.com/article"
-}
+- 每个贡献者一个共享分支
+- 分支名包含：学院、专业、年级、作者
+- 每个共享分支都写入 `shared_notes/manifest.json`
+- 上传的是完整共享笔记包，而不是单文件
+
+`manifest.json` 至少会描述：
+
+- 分支名
+- 作者
+- 学院 / 专业 / 年级
+- 发布时间
+- 文档数 / 分组数
+- 标签 / 简介
+- 文档预览
+
+### 7.2 中央索引
+
+默认分支维护中央索引：
+
+```text
+shared_notes/shared-index.json
 ```
 
-作用：
+这份索引由 GitHub Actions 自动生成，前端拉取共享列表时会优先读取它。只有索引不存在或损坏时，前端才会回退到远程分支扫描。
 
-- 将 Markdown 写入指定路径
-- 自动更新 `content/library.json`
-- 返回保存后的相对路径
+GitHub Actions 工作流见：
 
-### `POST /api/delete-document`
+- [build-shared-index.yml](c:/Users/Lenovo/Desktop/项目/note_book/.github/workflows/build-shared-index.yml#L1)
 
-请求体示例：
+### 7.3 上传体验
 
-```json
-{
-  "path": "./content/imports/example.md"
-}
-```
+- 上传任务会在后台继续执行
+- 关闭上传弹窗后仍可继续编辑
+- 页面右下角会显示：上传中 / 成功 / 失败
+- 失败后可直接重试
 
-作用：
+### 7.4 拉取共享笔记
 
-- 删除指定导入文档
-- 从 `content/library.json` 中移除对应索引
-- 删除 `content/assets/<slug>/` 资源目录（如果存在）
+共享列表支持：
 
-限制：
+- 按学院筛选
+- 按专业筛选
+- 按年级筛选
+- 按关键词筛选作者、标签、简介、文档标题
 
-- 未保存到站点的临时导入内容不允许删除
+导入共享笔记后，内容会真正写回本地工作区，而不是停留为只读远程引用。
 
-### `POST /api/update-document-meta`
+## 8. 运行模式
 
-请求体示例：
-
-```json
-{
-  "path": "./content/imports/example.md",
-  "group": "课程笔记",
-  "order": 2
-}
-```
-
-作用：
-
-- 更新文档所属分组
-- 更新文档在组内的顺序
-- 写回 `content/library.json`
-
-### `POST /api/create-group`
-
-请求体示例：
-
-```json
-{
-  "name": "论文阅读"
-}
-```
-
-作用：
-
-- 创建一个新的空分组
-- 将分组注册到 `content/library.json`
-
-### `POST /api/rename-group`
-
-请求体示例：
-
-```json
-{
-  "oldName": "论文阅读",
-  "newName": "论文精读"
-}
-```
-
-作用：
-
-- 重命名指定分组
-- 同步更新该分组下全部文档的 `group` 字段
-
-### `POST /api/delete-group`
-
-请求体示例：
-
-```json
-{
-  "name": "已清空分组"
-}
-```
-
-作用：
-
-- 删除一个空分组
-- 如果该分组下还有笔记，接口会直接拒绝
-
-## 8. 界面说明
-
-当前界面不再把新手引导直接铺在首页顶部，而是改成了“站内文档 + 树形入口”的组合：
-
-- 顶部 `笔记树` 按钮用于展开树形导航
-- 树内支持分组折叠、拖拽排序、移动分组、新建/重命名/删除空分组
-- 站内提供 `新手引导` 文档，专门说明这个网站的用途和使用方式
-- 非法操作会直接弹窗提示，例如非法网址、非法分组名、删除未保存文档、删除非空分组等
-
-如果是技术同事接手项目，打开站点后先看 `新手引导`，再通过 `笔记树` 管理文档，会比直接读源码更快进入状态。
-
-## 9. 静态模式 vs 本地服务模式
-
-### 静态模式
+### 8.1 静态模式
 
 例如：
 
@@ -324,15 +210,16 @@ python -m http.server 8000
 
 - 阅读
 - 搜索
-- 目录导航
+- 大纲导航
 
 不可用：
 
-- `POST /api/save-document`
-- `GET /api/import-url`
-- 自动写入本地文件
+- 保存
+- 网页导入
+- 共享上传 / 拉取
+- 退出站点
 
-### 本地服务模式
+### 8.2 本地服务模式
 
 例如：
 
@@ -344,38 +231,47 @@ python scripts/server.py
 
 - 阅读
 - 搜索
-- 编辑
+- 所见即所得编辑
+- Markdown 源码辅助编辑
 - 保存到站点
-- 导入网页
-- 下载图片到本地
-- 自动更新文档索引
+- 网页导入
+- 文件 / 文件夹管理
+- 共享上传 / 拉取
+- 退出站点
+
+## 9. 主要接口
+
+常用接口包括：
+
+- `GET /api/library`
+- `GET /api/import-url`
+- `POST /api/save-document`
+- `POST /api/delete-document`
+- `POST /api/create-group`
+- `POST /api/rename-group`
+- `POST /api/delete-group`
+- `GET /api/share-profile-defaults`
+- `GET /api/shared-notes`
+- `POST /api/publish-shared-notes`
+- `POST /api/import-shared-notes`
+- `POST /api/shutdown`
+
+核心后端文件是 [server.py](c:/Users/Lenovo/Desktop/项目/note_book/infosec_project_full/editable_note_site/scripts/server.py)。
 
 ## 10. 依赖
 
-`requirements.txt` 当前包含：
+当前 `requirements.txt` 包含：
 
 ```text
 requests>=2.32.0
 beautifulsoup4>=4.12.0
 markdownify>=1.2.0
+ftfy>=6.3.1
+playwright>=1.58.0
 ```
 
-## 11. 常见开发点
+## 11. 进一步阅读
 
-如果后续要继续扩展，优先关注这些文件：
-
-- `scripts/server.py`：导入逻辑、保存逻辑、启动行为
-- `app.js`：文档加载、缓存、编辑、搜索、导入按钮行为
-- `index.html`：页面布局和功能说明入口
-- `style.css`：整体界面风格和响应式布局
-
-## 12. 当前这次优化包含什么
-
-本次已经补上：
-
-- 技术向 README
-- 页面顶部功能说明
-- Windows 双击启动脚本 `begin.bat`
-- 服务端启动时打印访问地址和保存位置
-- 端口占用时自动切换到可用端口
-- 启动后自动打开浏览器的能力
+- 站内使用说明：[content/imports/新手引导.md](c:/Users/Lenovo/Desktop/项目/note_book/infosec_project_full/editable_note_site/content/imports/新手引导.md)
+- 功能基线：[function.md](c:/Users/Lenovo/Desktop/项目/note_book/infosec_project_full/editable_note_site/function.md)
+- 迭代记录：`WORKLOG.md`

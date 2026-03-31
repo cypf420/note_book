@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-03-31T08:51:13.111256+00:00",
+  "defaultBranch": "main",
+  "indexPath": "infosec_project_full/editable_note_site/shared_notes/shared-index.json",
+  "remoteUrl": "https://github.com/cypf420/note_book.git",
+  "itemCount": 1,
+  "skippedBranches": [],
+  "items": [
+    {
+      "branchName": "计算机学院_软件工程_2024",
+      "author": "cypf420",
+      "authorSlug": "cypf420",
+      "academy": "计算机学院",
+      "major": "软件工程",
+      "year": "2024",
+      "publishedAt": "2026-03-31T02:48:27.874810+00:00",
+      "documentCount": 2,
+      "groupCount": 2,
+      "tags": [],
+      "summary": "",
+      "documents": [
+        {
+          "title": "新手引导",
+          "slug": "新手引导",
+          "group": "帮助",
+          "type": "import",
+          "path": "./content/imports/新手引导.md",
+          "order": 1
+        },
+        {
+          "title": "Note - 时清川的个人主页",
+          "slug": "note-时清川的个人主页",
+          "group": "帮助/question",
+          "type": "import",
+          "path": "./content/imports/note-时清川的个人主页.md",
+          "order": 1
+        }
+      ],
+      "manifestPath": "infosec_project_full/editable_note_site/shared_notes/manifest.json",
+      "manifestUrl": "https://github.com/cypf420/note_book/blob/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%AD%A6%E9%99%A2_%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B_2024/infosec_project_full/editable_note_site/shared_notes/manifest.json",
+      "repo": {
+        "remoteUrl": "https://github.com/cypf420/note_book.git",
+        "hostedOnGitHub": true,
+        "owner": "cypf420",
+        "repo": "note_book",
+        "branchUrl": "https://github.com/cypf420/note_book/tree/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%AD%A6%E9%99%A2_%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B_2024/infosec_project_full/editable_note_site",
+        "manifestUrl": "https://github.com/cypf420/note_book/blob/%E8%AE%A1%E7%AE%97%E6%9C%BA%E5%AD%A6%E9%99%A2_%E8%BD%AF%E4%BB%B6%E5%B7%A5%E7%A8%8B_2024/infosec_project_full/editable_note_site/shared_notes/manifest.json"
+      }
+    }
+  ]
+}

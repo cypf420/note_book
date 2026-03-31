@@ -5,8 +5,10 @@ const STATIC_HOST = !(location.hostname === '127.0.0.1' || location.hostname ===
 
 const editor = document.getElementById('editor');
 const preview = document.getElementById('preview');
+const openEditorsList = document.getElementById('openEditorsList');
 const reloadBtn = document.getElementById('reloadBtn');
 const saveBtn = document.getElementById('saveBtn');
+const settingsSaveBtn = document.getElementById('settingsSaveBtn');
 const deleteBtn = document.getElementById('deleteBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const clearLocalBtn = document.getElementById('clearLocalBtn');
@@ -50,6 +52,15 @@ const toggleTreeBtn = document.getElementById('toggleTreeBtn');
 const closeTreeDrawerBtn = document.getElementById('closeTreeDrawerBtn');
 const treeDrawer = document.getElementById('treeDrawer');
 const topbar = document.querySelector('.topbar');
+const explorerCreateBtn = document.getElementById('explorerCreateBtn');
+const explorerCreateMenu = document.getElementById('explorerCreateMenu');
+const explorerMenuImportBtn = document.getElementById('explorerMenuImportBtn');
+const explorerNewFolderBtn = document.getElementById('explorerNewFolderBtn');
+const activityExplorerBtn = document.getElementById('activityExplorerBtn');
+const activitySearchBtn = document.getElementById('activitySearchBtn');
+const activitySyncBtn = document.getElementById('activitySyncBtn');
+const activitySourceBtn = document.getElementById('activitySourceBtn');
+const activitySettingsBtn = document.getElementById('activitySettingsBtn');
 const groupFilterSelect = document.getElementById('groupFilterSelect');
 const currentGroupSelect = document.getElementById('currentGroupSelect');
 const groupInput = document.getElementById('groupInput');
@@ -68,17 +79,32 @@ const deleteGroupBtn = document.getElementById('deleteGroupBtn');
 const groupManageHint = document.getElementById('groupManageHint');
 const sharePublishModal = document.getElementById('sharePublishModal');
 const closeSharePublishModalBtn = document.getElementById('closeSharePublishModalBtn');
+const shareAuthorInput = document.getElementById('shareAuthorInput');
 const shareAcademyInput = document.getElementById('shareAcademyInput');
 const shareMajorInput = document.getElementById('shareMajorInput');
 const shareYearInput = document.getElementById('shareYearInput');
+const shareTagsInput = document.getElementById('shareTagsInput');
+const shareSummaryInput = document.getElementById('shareSummaryInput');
 const shareBranchPreview = document.getElementById('shareBranchPreview');
 const sharePublishMeta = document.getElementById('sharePublishMeta');
 const confirmSharePublishBtn = document.getElementById('confirmSharePublishBtn');
 const sharedBrowseModal = document.getElementById('sharedBrowseModal');
 const refreshSharedNotesBtn = document.getElementById('refreshSharedNotesBtn');
 const closeSharedBrowseModalBtn = document.getElementById('closeSharedBrowseModalBtn');
+const sharedSearchInput = document.getElementById('sharedSearchInput');
+const sharedAcademyFilter = document.getElementById('sharedAcademyFilter');
+const sharedMajorFilter = document.getElementById('sharedMajorFilter');
+const sharedYearFilter = document.getElementById('sharedYearFilter');
 const sharedNotesMeta = document.getElementById('sharedNotesMeta');
+const sharedNotesSourceText = document.getElementById('sharedNotesSourceText');
 const sharedNotesList = document.getElementById('sharedNotesList');
+const explorerContextMenu = document.getElementById('explorerContextMenu');
+const taskTray = document.getElementById('taskTray');
+const shareUploadTask = document.getElementById('shareUploadTask');
+const shareUploadTaskTitle = document.getElementById('shareUploadTaskTitle');
+const shareUploadTaskMeta = document.getElementById('shareUploadTaskMeta');
+const retryShareUploadBtn = document.getElementById('retryShareUploadBtn');
+const dismissShareUploadBtn = document.getElementById('dismissShareUploadBtn');
 
 let library = [];
 let libraryGroups = [];
@@ -102,6 +128,7 @@ const READING_DENSITY_STORAGE_KEY = 'editable-note-site-reading-density';
 const FOCUS_MODE_STORAGE_KEY = 'editable-note-site-focus-mode';
 const TOC_VISIBLE_STORAGE_KEY = 'editable-note-site-toc-visible';
 const SHARE_PROFILE_STORAGE_KEY = 'editable-note-site-share-profile';
+const ACTIVE_SIDEBAR_PANEL_STORAGE_KEY = 'editable-note-site-active-sidebar';
 const DEFAULT_LAYOUT = { leftWidth: 310, rightWidth: 250 };
 const layoutState = readLayoutState();
 const turndownService = window.TurndownService ? new window.TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' }) : null;
@@ -138,6 +165,17 @@ let draggedDocPath = null;
 let treeDrawerOpen = readTreeDrawerState();
 let applyingRichShortcut = false;
 let sharedNotesCache = [];
+let sharedNotesSource = null;
+let shareDefaultsLoaded = false;
+let topbarHidden = false;
+let lastScrollY = window.scrollY || 0;
+let activeSidebarPanel = localStorage.getItem(ACTIVE_SIDEBAR_PANEL_STORAGE_KEY) || 'explorer';
+let selectedExplorerGroup = '';
+let explorerContextState = null;
+let shareUploadTaskState = { state: 'idle', payload: null, branchName: '', message: '', error: '' };
+
+const GUIDE_GROUP_NAME = '新手引导';
+const LEGACY_GUIDE_GROUP_NAME = '帮助';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -170,12 +208,17 @@ function normalizeShareField(value) {
     .slice(0, 80);
 }
 
+function normalizeShareBranchPart(value) {
+  return normalizeShareField(value).replace(/_+/g, '-');
+}
+
 function buildShareBranchName() {
-  const academy = normalizeShareField(shareAcademyInput?.value || '');
-  const major = normalizeShareField(shareMajorInput?.value || '');
-  const year = normalizeShareField(shareYearInput?.value || '');
-  if (!academy || !major || !year) return '';
-  return `${academy}_${major}_${year}`;
+  return buildShareBranchNameFromProfile({
+    author: shareAuthorInput?.value || '',
+    academy: shareAcademyInput?.value || '',
+    major: shareMajorInput?.value || '',
+    year: shareYearInput?.value || ''
+  });
 }
 
 function updateShareBranchPreview() {
@@ -194,17 +237,39 @@ function readShareProfile() {
 
 function persistShareProfile() {
   localStorage.setItem(SHARE_PROFILE_STORAGE_KEY, JSON.stringify({
+    author: (shareAuthorInput?.value || '').trim(),
     academy: (shareAcademyInput?.value || '').trim(),
     major: (shareMajorInput?.value || '').trim(),
     year: (shareYearInput?.value || '').trim(),
+    tags: (shareTagsInput?.value || '').trim(),
+    summary: (shareSummaryInput?.value || '').trim(),
   }));
 }
 
 function applyShareProfile(profile = {}) {
+  if (shareAuthorInput) shareAuthorInput.value = profile.author || '';
   if (shareAcademyInput) shareAcademyInput.value = profile.academy || '';
   if (shareMajorInput) shareMajorInput.value = profile.major || '';
   if (shareYearInput) shareYearInput.value = profile.year || '';
+  if (shareTagsInput) shareTagsInput.value = profile.tags || '';
+  if (shareSummaryInput) shareSummaryInput.value = profile.summary || '';
   updateShareBranchPreview();
+}
+
+async function ensureShareDefaultsLoaded() {
+  if (shareDefaultsLoaded || STATIC_HOST) return;
+  shareDefaultsLoaded = true;
+  try {
+    const data = await fetchJson('/api/share-profile-defaults');
+    if (shareAuthorInput && !shareAuthorInput.value.trim()) {
+      shareAuthorInput.value = data.author || '';
+    }
+    updateShareBranchPreview();
+    if (sharePublishMeta && data.defaultBranch) {
+      sharePublishMeta.innerHTML += `<br />默认分支：<code>${escapeHtml(data.defaultBranch)}</code>，中央索引会写回 <code>shared_notes/shared-index.json</code>。`;
+    }
+  } catch (_) {
+  }
 }
 
 function setModalOpen(modal, open) {
@@ -216,9 +281,12 @@ function setModalOpen(modal, open) {
 function openSharePublishModal() {
   applyShareProfile(readShareProfile());
   if (sharePublishMeta) {
-    sharePublishMeta.innerHTML = '上传会使用当前仓库的 <code>origin</code> 远程。如果本机没有 GitHub 凭据，推送会失败。';
+    sharePublishMeta.innerHTML = shareUploadTaskState.state === 'running'
+      ? '当前已有后台上传任务在运行，你可以直接关闭这个窗口继续编辑。'
+      : '上传会使用当前仓库的 <code>origin</code> 远程。如果本机没有 GitHub 凭据，推送会失败。作者为空时会优先读取本机 Git 身份。';
   }
   setModalOpen(sharePublishModal, true);
+  void ensureShareDefaultsLoaded();
 }
 
 function closeSharePublishModal() {
@@ -351,6 +419,24 @@ function normalizeGroupName(group) {
   return text.split('/').map(part => part.trim()).filter(Boolean).join('/');
 }
 
+function migrateGuideGroupName(group) {
+  const normalized = normalizeGroupName(group);
+  if (!normalized) return '';
+  if (normalized === LEGACY_GUIDE_GROUP_NAME) return GUIDE_GROUP_NAME;
+  if (normalized.startsWith(`${LEGACY_GUIDE_GROUP_NAME}/`)) {
+    return `${GUIDE_GROUP_NAME}/${normalized.slice(LEGACY_GUIDE_GROUP_NAME.length + 1)}`;
+  }
+  return normalized;
+}
+
+function compareGroupsForExplorer(a, b) {
+  const normalizedA = migrateGuideGroupName(a);
+  const normalizedB = migrateGuideGroupName(b);
+  const guideRankA = normalizedA === GUIDE_GROUP_NAME ? 0 : 1;
+  const guideRankB = normalizedB === GUIDE_GROUP_NAME ? 0 : 1;
+  return guideRankA - guideRankB || normalizedA.localeCompare(normalizedB, 'zh-CN');
+}
+
 function validateGroupNameOrThrow(group) {
   const normalized = normalizeGroupName(group);
   if (!normalized) throw new Error('分组名不能为空');
@@ -412,19 +498,19 @@ function validateUrlOrThrow(url) {
 }
 
 function displayGroupName(group) {
-  return normalizeGroupName(group) || UNGROUPED_LABEL;
+  return migrateGuideGroupName(group) || UNGROUPED_LABEL;
 }
 
 function getGroupOrderMap() {
   const map = new Map();
   libraryGroups.forEach((group, index) => {
-    map.set(group.name, Number.isFinite(Number(group.order)) ? Number(group.order) : index + 1);
+    map.set(migrateGuideGroupName(group.name), Number.isFinite(Number(group.order)) ? Number(group.order) : index + 1);
   });
   return map;
 }
 
 function documentSortValue(doc) {
-  const group = normalizeGroupName(doc.group);
+  const group = getDocGroup(doc);
   const groupOrder = getGroupOrderMap().get(group) ?? 999999;
   const typeRank = doc.type === 'main' ? 0 : 1;
   const order = Number.isFinite(Number(doc.order)) ? Number(doc.order) : 999999;
@@ -465,7 +551,8 @@ function readCollapsedGroups() {
 }
 
 function readTreeDrawerState() {
-  return localStorage.getItem(TREE_DRAWER_STORAGE_KEY) === '1';
+  const stored = localStorage.getItem(TREE_DRAWER_STORAGE_KEY);
+  return stored == null ? true : stored === '1';
 }
 
 function persistLayoutState() {
@@ -484,9 +571,150 @@ function applyTheme(isDark) {
   darkTheme = Boolean(isDark);
   document.body.classList.toggle('theme-dark', darkTheme);
   if (toggleThemeBtn) {
-    toggleThemeBtn.textContent = darkTheme ? '切换浅色报刊' : '切换夜间雅黑';
+    const tooltip = darkTheme ? '切换到浅色主题' : '切换到深色主题';
+    toggleThemeBtn.dataset.tooltip = tooltip;
+    toggleThemeBtn.setAttribute('aria-label', tooltip);
   }
   localStorage.setItem(THEME_STORAGE_KEY, darkTheme ? 'dark' : 'light');
+}
+
+function applySidebarPanelState() {
+  document.querySelectorAll('.sidebar-view').forEach(view => {
+    view.classList.toggle('is-active', view.dataset.panel === activeSidebarPanel);
+  });
+  document.querySelectorAll('[data-activity-panel]').forEach(btn => {
+    btn.classList.toggle('is-active', btn.dataset.activityPanel === activeSidebarPanel);
+  });
+  localStorage.setItem(ACTIVE_SIDEBAR_PANEL_STORAGE_KEY, activeSidebarPanel);
+}
+
+function setActiveSidebarPanel(panel) {
+  const next = ['explorer', 'search', 'sync', 'settings'].includes(panel) ? panel : 'explorer';
+  activeSidebarPanel = next;
+  if (leftSidebarCollapsed) {
+    leftSidebarCollapsed = false;
+    persistLayoutState();
+  }
+  applyLayoutState();
+  applySidebarPanelState();
+}
+
+function setExplorerCreateMenuOpen(nextOpen) {
+  if (!explorerCreateMenu) return;
+  explorerCreateMenu.classList.toggle('hidden', !nextOpen);
+  explorerCreateMenu.setAttribute('aria-hidden', String(!nextOpen));
+  if (explorerCreateBtn) explorerCreateBtn.setAttribute('aria-expanded', String(nextOpen));
+}
+
+function closeExplorerContextMenu() {
+  if (!explorerContextMenu) return;
+  explorerContextMenu.classList.add('hidden');
+  explorerContextMenu.setAttribute('aria-hidden', 'true');
+  explorerContextState = null;
+}
+
+function openExplorerContextMenu(evt, state) {
+  if (!explorerContextMenu) return;
+  setExplorerCreateMenuOpen(false);
+  const allowedActions = state.type === 'group'
+    ? ['new-file', 'new-folder', 'import-url', 'rename', 'delete']
+    : ['open', 'rename', 'delete', 'copy-path'];
+  explorerContextMenu.querySelectorAll('[data-menu-action]').forEach(button => {
+    const action = button.dataset.menuAction;
+    let visible = allowedActions.includes(action);
+    if (state.type === 'file' && action === 'delete') {
+      visible = visible && canDeleteDoc(state.doc);
+    }
+    if (state.type === 'file' && action === 'rename') {
+      visible = visible && canManageGroup(state.doc);
+    }
+    button.classList.toggle('hidden', !visible);
+  });
+  explorerContextState = state;
+  explorerContextMenu.classList.remove('hidden');
+  explorerContextMenu.setAttribute('aria-hidden', 'false');
+  const maxX = Math.max(8, window.innerWidth - explorerContextMenu.offsetWidth - 8);
+  const maxY = Math.max(8, window.innerHeight - explorerContextMenu.offsetHeight - 8);
+  explorerContextMenu.style.left = `${Math.min(evt.clientX, maxX)}px`;
+  explorerContextMenu.style.top = `${Math.min(evt.clientY, maxY)}px`;
+}
+
+function buildShareBranchNameFromProfile(profile = {}) {
+  const author = normalizeShareBranchPart(profile.author || 'auto');
+  const academy = normalizeShareBranchPart(profile.academy || '');
+  const major = normalizeShareBranchPart(profile.major || '');
+  const year = normalizeShareBranchPart(profile.year || '');
+  if (!academy || !major || !year) return '';
+  return `notes/${academy}-${major}-${year}-${author || 'auto'}`;
+}
+
+function renderShareUploadTask() {
+  if (!taskTray || !shareUploadTask) return;
+  const active = shareUploadTaskState.state !== 'idle';
+  taskTray.classList.toggle('hidden', !active);
+  shareUploadTask.classList.toggle('hidden', !active);
+  shareUploadTask.dataset.state = shareUploadTaskState.state;
+  if (!active) return;
+  const branchText = shareUploadTaskState.branchName ? ` · ${shareUploadTaskState.branchName}` : '';
+  shareUploadTaskTitle.textContent = `共享上传${branchText}`;
+  shareUploadTaskMeta.textContent = shareUploadTaskState.message || '准备就绪';
+  retryShareUploadBtn?.classList.toggle('hidden', shareUploadTaskState.state !== 'error');
+  dismissShareUploadBtn?.classList.toggle('hidden', shareUploadTaskState.state === 'running');
+}
+
+function dismissShareUploadTask() {
+  if (shareUploadTaskState.state === 'running') return;
+  shareUploadTaskState = { state: 'idle', payload: null, branchName: '', message: '', error: '' };
+  renderShareUploadTask();
+}
+
+async function startShareUploadTask(payload) {
+  if (shareUploadTaskState.state === 'running') {
+    setStatus('已有共享上传任务正在进行，请等待当前任务完成', true);
+    return;
+  }
+  const branchName = buildShareBranchNameFromProfile(payload);
+  shareUploadTaskState = {
+    state: 'running',
+    payload: { ...payload },
+    branchName,
+    message: `正在上传到 ${branchName || '共享分支'}，你可以继续编辑当前笔记。随后 GitHub Actions 会更新 shared-index.json。`,
+    error: ''
+  };
+  renderShareUploadTask();
+  setStatus(`共享上传已转入后台：${branchName || '未命名分支'}`);
+  closeSharePublishModal();
+  try {
+    const result = await publishSharedNotes(payload);
+    shareUploadTaskState = {
+      state: 'success',
+      payload: { ...payload },
+      branchName: result.branchName || branchName,
+      message: `上传完成：${result.branchName}，共同步 ${result.documentCount} 篇笔记，manifest 已写入 ${result.manifestPath || 'shared_notes/manifest.json'}。中央索引会在 Actions 执行后更新。`,
+      error: ''
+    };
+    setStatus(`共享分支已上传：${result.branchName}`);
+  } catch (err) {
+    const message = err?.message || String(err);
+    shareUploadTaskState = {
+      state: 'error',
+      payload: { ...payload },
+      branchName,
+      message: `上传失败：${message}`,
+      error: message
+    };
+    setStatus(`共享上传失败：${message}`, true);
+  } finally {
+    renderShareUploadTask();
+  }
+}
+
+function syncSourceActivityState() {
+  if (!activitySourceBtn) return;
+  const open = !editorDrawer.classList.contains('hidden');
+  activitySourceBtn.classList.toggle('is-source-open', open);
+  activitySourceBtn.dataset.tooltip = open ? '关闭 Markdown 源码' : '打开 Markdown 源码';
+  activitySourceBtn.setAttribute('aria-label', activitySourceBtn.dataset.tooltip);
 }
 
 function applyReadingDensity(mode) {
@@ -518,7 +746,9 @@ function applyTocState() {
   if (!tocPanel) return;
   tocPanel.classList.toggle('hidden', !tocVisible);
   if (toggleTocBtn) {
-    toggleTocBtn.textContent = tocVisible ? '收起目录栏' : '展开目录栏';
+    const tooltip = tocVisible ? '收起目录栏' : '展开目录栏';
+    toggleTocBtn.dataset.tooltip = tooltip;
+    toggleTocBtn.setAttribute('aria-label', tooltip);
     toggleTocBtn.setAttribute('aria-expanded', String(tocVisible));
   }
   localStorage.setItem(TOC_VISIBLE_STORAGE_KEY, tocVisible ? '1' : '0');
@@ -532,16 +762,16 @@ function setTocVisible(nextVisible) {
 function syncSidebarToggleButtons() {
   if (toggleLeftSidebarBtn) {
     const leftExpanded = !leftSidebarCollapsed;
-    toggleLeftSidebarBtn.textContent = leftExpanded ? '‹' : '›';
-    toggleLeftSidebarBtn.title = leftExpanded ? '收起左侧栏' : '展开左侧栏';
-    toggleLeftSidebarBtn.setAttribute('aria-label', leftExpanded ? '收起左侧栏' : '展开左侧栏');
+    const tooltip = leftExpanded ? '收起左侧栏' : '展开左侧栏';
+    toggleLeftSidebarBtn.dataset.tooltip = tooltip;
+    toggleLeftSidebarBtn.setAttribute('aria-label', tooltip);
     toggleLeftSidebarBtn.setAttribute('aria-expanded', String(leftExpanded));
   }
   if (toggleRightSidebarBtn) {
     const rightExpanded = !rightSidebarCollapsed;
-    toggleRightSidebarBtn.textContent = rightExpanded ? '›' : '‹';
-    toggleRightSidebarBtn.title = rightExpanded ? '收起右侧栏' : '展开右侧栏';
-    toggleRightSidebarBtn.setAttribute('aria-label', rightExpanded ? '收起右侧栏' : '展开右侧栏');
+    const tooltip = rightExpanded ? '收起右侧栏' : '展开右侧栏';
+    toggleRightSidebarBtn.dataset.tooltip = tooltip;
+    toggleRightSidebarBtn.setAttribute('aria-label', tooltip);
     toggleRightSidebarBtn.setAttribute('aria-expanded', String(rightExpanded));
   }
 }
@@ -557,19 +787,31 @@ function applyLayoutState() {
     toggleFocusBtn.textContent = focusMode ? '退出专注模式' : '专注模式';
     toggleFocusBtn.setAttribute('aria-expanded', String(!focusMode));
   }
+  syncSourceActivityState();
 }
 
 function applyTreeDrawerState() {
+  if (!treeDrawer || !toggleTreeBtn) return;
   treeDrawer.classList.toggle('hidden', !treeDrawerOpen);
   treeDrawer.setAttribute('aria-hidden', String(!treeDrawerOpen));
   toggleTreeBtn.setAttribute('aria-expanded', String(treeDrawerOpen));
-  toggleTreeBtn.textContent = treeDrawerOpen ? '收起笔记树' : '笔记树';
+  const tooltip = treeDrawerOpen ? '收起项目树' : '展开项目树';
+  toggleTreeBtn.dataset.tooltip = tooltip;
+  toggleTreeBtn.setAttribute('aria-label', tooltip);
 }
 
 function updateStickyOffset() {
-  const topbarHeight = topbar?.offsetHeight || 0;
-  const stickyOffset = Math.max(96, topbarHeight + 18);
-  document.documentElement.style.setProperty('--sticky-top-offset', `${stickyOffset}px`);
+  document.documentElement.style.setProperty('--sticky-top-offset', '24px');
+}
+
+function setTopbarHidden(nextHidden) {
+  topbarHidden = false;
+  document.body.classList.remove('topbar-hidden');
+  updateStickyOffset();
+}
+
+function syncTopbarVisibility() {
+  return;
 }
 
 function setTreeDrawerOpen(nextOpen) {
@@ -647,7 +889,7 @@ function cacheKeyForPath(path) {
 }
 
 function groupStorageKey(group) {
-  return normalizeGroupName(group) || '__ungrouped__';
+  return migrateGuideGroupName(group) || '__ungrouped__';
 }
 
 function isGroupCollapsed(group) {
@@ -662,18 +904,18 @@ function toggleGroupCollapsed(group) {
 }
 
 function getDocGroup(doc) {
-  return normalizeGroupName(doc?.group);
+  return migrateGuideGroupName(doc?.group);
 }
 
 function getAvailableGroups() {
   const names = [...libraryGroups.map(group => group.name), ...library.map(doc => getDocGroup(doc))];
-  return [...new Set(names.filter(Boolean))];
+  return [...new Set(names.filter(Boolean))].sort(compareGroupsForExplorer);
 }
 
 function getVisibleGroups() {
   const orderedGroups = libraryGroups
     .slice()
-    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'zh-CN'))
+    .sort((a, b) => a.order - b.order || compareGroupsForExplorer(a.name, b.name))
     .map(group => group.name);
   const documentGroups = library
     .map(doc => getDocGroup(doc))
@@ -690,7 +932,7 @@ function getChildGroups(parentGroup = '') {
   const normalizedParent = normalizeGroupName(parentGroup);
   return libraryGroups
     .filter(group => getGroupParentName(group.name) === normalizedParent)
-    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'zh-CN'));
+    .sort((a, b) => a.order - b.order || compareGroupsForExplorer(a.name, b.name));
 }
 
 function getGroupSubtreeDocumentCount(group) {
@@ -1012,16 +1254,84 @@ function formatShareTime(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN');
 }
 
-function renderSharedNotesList(items = []) {
+function populateSharedFilterSelect(select, items, key, emptyLabel) {
+  if (!select) return;
+  const currentValue = select.value;
+  const values = [...new Set(items.map(item => (item[key] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+  select.innerHTML = [`<option value="">${emptyLabel}</option>`, ...values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)].join('');
+  select.value = values.includes(currentValue) ? currentValue : '';
+}
+
+function buildSharedSourceMessage(source = {}) {
+  if (!source || !source.mode) return '';
+  if (source.mode === 'shared-index') {
+    const generatedAt = source.generatedAt ? `，生成时间 ${formatShareTime(source.generatedAt)}` : '';
+    const indexPath = source.indexPath ? `，索引路径 ${source.indexPath}` : '';
+    return `当前列表来自中央 shared-index.json${generatedAt}${indexPath}。`;
+  }
+  if (source.mode === 'scan') {
+    return '当前列表来自远程共享分支的实时扫描结果。';
+  }
+  if (source.mode === 'scan-fallback') {
+    const reason = source.fallbackReason ? ` 原因：${source.fallbackReason}` : '';
+    return `中央 shared-index.json 不可用，当前列表来自远程共享分支实时扫描。${reason}`;
+  }
+  return '';
+}
+
+function filterSharedNotes(items = []) {
+  const keyword = (sharedSearchInput?.value || '').trim().toLowerCase();
+  const academy = (sharedAcademyFilter?.value || '').trim();
+  const major = (sharedMajorFilter?.value || '').trim();
+  const year = (sharedYearFilter?.value || '').trim();
+  return items.filter(item => {
+    if (academy && (item.academy || '') !== academy) return false;
+    if (major && (item.major || '') !== major) return false;
+    if (year && (item.year || '') !== year) return false;
+    if (!keyword) return true;
+    const haystack = [
+      item.branchName,
+      item.author,
+      item.academy,
+      item.major,
+      item.year,
+      item.summary,
+      ...(item.tags || []),
+      ...(item.documents || []).map(doc => `${doc.title || ''} ${doc.group || ''}`)
+    ].join(' ').toLowerCase();
+    return haystack.includes(keyword);
+  });
+}
+
+function renderSharedNotesList(items = [], source = null) {
   if (!sharedNotesList || !sharedNotesMeta) return;
   sharedNotesCache = items;
+  sharedNotesSource = source;
+  populateSharedFilterSelect(sharedAcademyFilter, items, 'academy', '全部学院');
+  populateSharedFilterSelect(sharedMajorFilter, items, 'major', '全部专业');
+  populateSharedFilterSelect(sharedYearFilter, items, 'year', '全部年级');
+
+  const filteredItems = filterSharedNotes(items);
+  if (sharedNotesSourceText) {
+    sharedNotesSourceText.textContent = buildSharedSourceMessage(source);
+  }
+
   if (!items.length) {
-    sharedNotesMeta.textContent = '还没有检测到可导入的共享分支。';
-    sharedNotesList.innerHTML = '<div class="empty-search">暂无共享笔记。点击“上传共享笔记”后，这里会自动出现可导入的列表。</div>';
+    sharedNotesMeta.textContent = '还没有检测到可导入的共享笔记。';
+    sharedNotesList.innerHTML = '<div class="empty-search">暂无共享笔记。上传共享笔记后，这里会在中央索引更新后展示列表。</div>';
     return;
   }
-  sharedNotesMeta.textContent = `当前共发现 ${items.length} 个共享分支。点击“导入到本地”后会自动合并进本地文档库。`;
-  sharedNotesList.innerHTML = items.map(item => {
+
+  sharedNotesMeta.textContent = filteredItems.length === items.length
+    ? `当前共发现 ${items.length} 个共享贡献分支。点击“导入到本地”后会自动合并进本地文档库。`
+    : `共发现 ${items.length} 个共享贡献分支，当前筛选后剩余 ${filteredItems.length} 个。`;
+
+  if (!filteredItems.length) {
+    sharedNotesList.innerHTML = '<div class="empty-search">当前筛选条件下没有匹配的共享笔记。</div>';
+    return;
+  }
+
+  sharedNotesList.innerHTML = filteredItems.map(item => {
     const docs = (item.documents || []).slice(0, 6);
     const docsHtml = docs.length
       ? docs.map(doc => `
@@ -1030,13 +1340,17 @@ function renderSharedNotesList(items = []) {
           <div class="doc-meta">${escapeHtml(doc.group || '未分组')}</div>
         </div>
       `).join('')
-      : '<div class="empty-search">该分支暂未写入笔记摘要。</div>';
+      : '<div class="empty-search">该贡献分支暂未写入文档摘要。</div>';
+    const tagsHtml = (item.tags || []).length
+      ? `<div class="shared-note-tags">${item.tags.map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join('')}</div>`
+      : '';
     return `
       <article class="shared-note-card">
         <div class="shared-note-head">
           <div>
-            <div class="shared-note-title">${escapeHtml(item.branchName || '未命名分支')}</div>
+            <div class="shared-note-title">${escapeHtml(item.author || '匿名贡献者')}</div>
             <div class="shared-note-meta">
+              分支 ${escapeHtml(item.branchName || '未命名分支')}<br />
               ${escapeHtml(item.academy || '')} / ${escapeHtml(item.major || '')} / ${escapeHtml(item.year || '')}<br />
               笔记 ${Number(item.documentCount || 0)} 篇，分组 ${Number(item.groupCount || 0)} 个，更新时间 ${escapeHtml(formatShareTime(item.publishedAt))}
             </div>
@@ -1045,18 +1359,23 @@ function renderSharedNotesList(items = []) {
             <button class="shared-import-btn" data-branch="${escapeHtml(item.branchName || '')}">导入到本地</button>
           </div>
         </div>
+        <div class="shared-note-summary">${escapeHtml(item.summary || '该贡献者尚未填写简介。')}</div>
+        ${tagsHtml}
         <div class="shared-note-docs">${docsHtml}</div>
       </article>
     `;
   }).join('');
 }
 
-async function refreshSharedNotesList() {
+async function refreshSharedNotesList(options = {}) {
   if (!sharedNotesMeta || !sharedNotesList) return;
-  sharedNotesMeta.textContent = '正在扫描远程共享分支…';
+  sharedNotesMeta.textContent = options.forceScan ? '正在扫描远程共享分支…' : '正在读取中央 shared-index.json…';
+  if (sharedNotesSourceText) {
+    sharedNotesSourceText.textContent = '';
+  }
   sharedNotesList.innerHTML = '<div class="empty-search">正在加载…</div>';
-  const result = await fetchSharedNotesList();
-  renderSharedNotesList(result.items || []);
+  const result = await fetchSharedNotesList(options);
+  renderSharedNotesList(result.items || [], result.source || null);
 }
 
 function highlightSnippet(text, query) {
@@ -1074,7 +1393,7 @@ function highlightSnippet(text, query) {
 function attachAnchorIds() {
   const seen = new Map();
   preview.querySelectorAll('h1, h2, h3').forEach(h => {
-    const base = slugify(h.textContent);
+    const base = slugify(getCleanHeadingText(h));
     const count = seen.get(base) || 0;
     seen.set(base, count + 1);
     h.id = count ? `${base}-${count}` : base;
@@ -1094,6 +1413,18 @@ function highlightCurrentToc(id) {
   });
 }
 
+function getCleanHeadingText(heading) {
+  const clone = heading.cloneNode(true);
+  clone.querySelectorAll('.anchor-link, button, input, textarea, select, .explorer-icon').forEach(node => node.remove());
+  return (clone.textContent || '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, ' ')
+    .replace(/\u00B6/g, ' ')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/[#¶]+\s*$/g, '')
+    .trim();
+}
+
 function buildTOC() {
   const headings = [...preview.querySelectorAll('h1, h2, h3')];
   tocList.innerHTML = '';
@@ -1103,7 +1434,7 @@ function buildTOC() {
   }
   headings.forEach(h => {
     const a = document.createElement('a');
-    a.textContent = h.textContent.replace(/#$/, '').trim();
+    a.textContent = getCleanHeadingText(h) || '未命名标题';
     a.href = `#${h.id}`;
     a.className = `toc-level-${h.tagName.substring(1)}`;
     a.dataset.section = h.id;
@@ -1232,6 +1563,169 @@ function replaceNodePreservingCaret(target, replacement, caretTarget = null, car
     else setCaretAtEnd(caretTarget);
   }
   return true;
+}
+
+function getClosestPreviewElement(node, selector) {
+  const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+  if (!element) return null;
+  const found = element.closest(selector);
+  return found && preview.contains(found) ? found : null;
+}
+
+function createEmptyParagraph() {
+  const paragraph = document.createElement('p');
+  paragraph.appendChild(document.createElement('br'));
+  return paragraph;
+}
+
+function isRangeAtBlockStart(range, block) {
+  if (!range || !block) return false;
+  const probe = range.cloneRange();
+  probe.selectNodeContents(block);
+  probe.setEnd(range.startContainer, range.startOffset);
+  return !probe.toString().replace(/\u00a0/g, ' ').trim();
+}
+
+function isRangeAtBlockEnd(range, block) {
+  if (!range || !block) return false;
+  const probe = range.cloneRange();
+  probe.selectNodeContents(block);
+  probe.setStart(range.startContainer, range.startOffset);
+  return !probe.toString().replace(/\u00a0/g, ' ').trim();
+}
+
+function isRichListItemEmpty(item) {
+  if (!item) return false;
+  if (item.getAttribute('data-task-item') === 'true') {
+    return !(item.querySelector('.task-item-text')?.textContent || '').trim();
+  }
+  const clone = item.cloneNode(true);
+  clone.querySelectorAll('ul, ol').forEach(node => node.remove());
+  return !clone.textContent.replace(/\u00a0/g, ' ').trim();
+}
+
+function exitRichListItem(item) {
+  if (!item?.parentNode) return false;
+  const list = item.parentNode;
+  if (!/^(UL|OL)$/.test(list.nodeName)) return false;
+  const paragraph = createEmptyParagraph();
+  const listHost = list.closest('li') || list;
+  if (!listHost.parentNode) return false;
+  listHost.parentNode.insertBefore(paragraph, listHost.nextSibling);
+  item.remove();
+  if (!list.children.length) {
+    list.remove();
+  }
+  setCaretAtStart(paragraph);
+  return true;
+}
+
+function liftParagraphFromBlockquote(paragraph, quote) {
+  if (!paragraph || !quote?.parentNode) return false;
+  const lifted = document.createElement('p');
+  if (paragraph.innerHTML && paragraph.innerHTML !== '<br>') {
+    lifted.innerHTML = paragraph.innerHTML;
+  } else {
+    lifted.appendChild(document.createElement('br'));
+  }
+
+  const parent = quote.parentNode;
+  if (quote.children.length === 1) {
+    parent.replaceChild(lifted, quote);
+  } else if (paragraph === quote.firstElementChild) {
+    parent.insertBefore(lifted, quote);
+    paragraph.remove();
+  } else {
+    parent.insertBefore(lifted, quote.nextSibling);
+    paragraph.remove();
+  }
+  setCaretAtStart(lifted);
+  return true;
+}
+
+function handleRichEnterKey(evt) {
+  if (evt.shiftKey) return false;
+  const range = getCurrentSelectionRange();
+  if (!range) return false;
+
+  const listItem = getClosestPreviewElement(range.startContainer, 'li');
+  if (listItem && isRichListItemEmpty(listItem)) {
+    evt.preventDefault();
+    if (exitRichListItem(listItem)) {
+      syncRichSource();
+      attachAnchorIds();
+      return true;
+    }
+  }
+
+  const heading = getClosestPreviewElement(range.startContainer, 'h1, h2, h3, h4, h5, h6');
+  if (heading && isRangeAtBlockEnd(range, heading)) {
+    evt.preventDefault();
+    const paragraph = createEmptyParagraph();
+    heading.parentNode.insertBefore(paragraph, heading.nextSibling);
+    setCaretAtStart(paragraph);
+    syncRichSource();
+    attachAnchorIds();
+    return true;
+  }
+
+  return false;
+}
+
+function handleRichBackspaceKey(evt) {
+  const range = getCurrentSelectionRange();
+  if (!range) return false;
+
+  const heading = getClosestPreviewElement(range.startContainer, 'h1, h2, h3, h4, h5, h6');
+  if (heading && isRangeAtBlockStart(range, heading)) {
+    evt.preventDefault();
+    const paragraph = document.createElement('p');
+    paragraph.textContent = heading.textContent || '';
+    replaceNodePreservingCaret(heading, paragraph, paragraph, 'start');
+    syncRichSource();
+    attachAnchorIds();
+    return true;
+  }
+
+  const paragraph = getClosestPreviewElement(range.startContainer, 'p');
+  const quote = paragraph?.parentElement?.nodeName === 'BLOCKQUOTE' ? paragraph.parentElement : null;
+  if (paragraph && quote && isRangeAtBlockStart(range, paragraph)) {
+    evt.preventDefault();
+    if (liftParagraphFromBlockquote(paragraph, quote)) {
+      syncRichSource();
+      attachAnchorIds();
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function handleRichTabKey(evt) {
+  const range = getCurrentSelectionRange();
+  if (!range) return false;
+  const listItem = getClosestPreviewElement(range.startContainer, 'li');
+  if (!listItem) return false;
+  evt.preventDefault();
+  execRichCommand(evt.shiftKey ? 'outdent' : 'indent');
+  syncRichSource();
+  attachAnchorIds();
+  return true;
+}
+
+function handleRichKeydown(evt) {
+  if (!richMode || preview.getAttribute('contenteditable') !== 'true') return;
+  if (evt.key === 'Enter') {
+    handleRichEnterKey(evt);
+    return;
+  }
+  if (evt.key === 'Backspace') {
+    handleRichBackspaceKey(evt);
+    return;
+  }
+  if (evt.key === 'Tab') {
+    handleRichTabKey(evt);
+  }
 }
 
 function applyBlockMarkdownShortcut() {
@@ -1504,27 +1998,39 @@ function updateRichMode(enabled) {
   richToolbar.setAttribute('aria-hidden', String(!enabled));
   preview.setAttribute('contenteditable', enabled ? 'true' : 'false');
   preview.setAttribute('spellcheck', enabled ? 'true' : 'false');
-  toggleRichBtn.textContent = enabled ? '切换到纯 Markdown' : '切换到所见即所得';
-  modeText.textContent = enabled ? '所见即所得模式（语雀风格）' : (editorDrawer.classList.contains('hidden') ? '阅读模式（源码隐藏）' : '编辑模式（源码显示）');
+  if (toggleRichBtn) {
+    toggleRichBtn.textContent = enabled ? '只看 Markdown 源码' : '返回所见即所得';
+  }
+  modeText.textContent = enabled
+    ? (editorDrawer.classList.contains('hidden') ? '所见即所得模式' : '所见即所得 + Markdown 源码')
+    : 'Markdown 源码模式';
   if (enabled) {
-    openEditor(false);
     render(false);
     preview.focus();
   } else {
+    openEditor(true);
     preview.removeAttribute('contenteditable');
-    render(!editorDrawer.classList.contains('hidden'));
+    render(true);
+    setTimeout(() => editor.focus(), 40);
   }
+  syncSourceActivityState();
 }
 
 function openEditor(force = true) {
-  if (richMode && force) updateRichMode(false);
   editorDrawer.classList.toggle('hidden', !force);
   document.body.classList.toggle('editor-open', force);
-  document.body.classList.toggle('reading-mode', !force);
-  if (!richMode) modeText.textContent = force ? '编辑模式（源码显示）' : '阅读模式（源码隐藏）';
-  editToggleBtn.textContent = force ? '返回阅读模式' : '编辑当前文档';
+  document.body.classList.toggle('reading-mode', !richMode && !force);
+  if (richMode) {
+    modeText.textContent = force ? '所见即所得 + Markdown 源码' : '所见即所得模式';
+  } else {
+    modeText.textContent = 'Markdown 源码模式';
+  }
+  if (editToggleBtn) {
+    editToggleBtn.textContent = force ? '关闭 Markdown 源码' : '打开 Markdown 源码';
+  }
   editorDrawer.setAttribute('aria-hidden', String(!force));
   if (force) setTimeout(() => editor.focus(), 40);
+  syncSourceActivityState();
 }
 
 async function fetchText(url, options = {}) {
@@ -1551,69 +2057,95 @@ async function fetchJson(url, options = {}) {
   return res.json();
 }
 
+function renderOpenEditors() {
+  if (!openEditorsList) return;
+  if (!currentDoc) {
+    openEditorsList.innerHTML = '<div class="empty-search">当前还没有打开的文档。</div>';
+    return;
+  }
+  openEditorsList.innerHTML = `
+    <button class="open-editor-row is-active" data-path="${escapeHtml(currentDoc.path)}">
+      <span class="explorer-icon">M</span>
+      <span class="explorer-label">${escapeHtml(currentDoc.title || currentDoc.slug || '未命名文档')}</span>
+    </button>
+  `;
+  openEditorsList.querySelector('[data-path]')?.addEventListener('click', () => {
+    if (currentDoc?.path && currentDoc.path !== '__adhoc__') openDocument(currentDoc.path);
+  });
+}
+
 function renderLibraryList() {
-  function renderDocCard(doc, targetGroup, level) {
-    const card = document.createElement('div');
-    card.className = 'doc-card';
-    card.dataset.path = doc.path;
-    card.setAttribute('role', 'treeitem');
-    card.setAttribute('aria-level', String(level));
-    card.style.setProperty('--group-level', String(Math.max(0, level - 2)));
-    if (canManageGroup(doc)) {
-      card.draggable = true;
-    }
-    const deletable = canDeleteDoc(doc);
-    card.innerHTML = `
-      <div class="doc-card-head">
-        <button class="doc-open-btn" data-action="open" data-path="${escapeHtml(doc.path)}">
-          <div class="doc-title">${escapeHtml(doc.title || doc.slug)}</div>
-          <div class="doc-meta">${escapeHtml(displayGroupName(doc.group))} · ${escapeHtml(doc.path)} · ${doc.type || 'doc'}</div>
-          <div class="doc-snippet">${escapeHtml((doc.sourceUrl || doc.remoteFallback || '本地文档').slice(0, 100))}</div>
-        </button>
-        ${deletable ? '<button class="doc-delete-btn" data-action="delete" title="删除这篇笔记" aria-label="删除这篇笔记">删除</button>' : ''}
-      </div>
+  function buildIndent(level) {
+    return '<span class="explorer-indent"></span>'.repeat(Math.max(0, level));
+  }
+
+  function renderDocNode(doc, targetGroup, level) {
+    const row = document.createElement('div');
+    row.className = 'explorer-node';
+    row.dataset.path = doc.path;
+    row.innerHTML = `
+      <button class="explorer-row explorer-file-row ${currentDoc && currentDoc.path === doc.path ? 'is-active' : ''}" data-action="open" data-path="${escapeHtml(doc.path)}" role="treeitem" aria-level="${String(level)}">
+        ${buildIndent(level - 1)}
+        <span class="explorer-indent"></span>
+        <span class="explorer-icon">M</span>
+        <span class="explorer-label">${escapeHtml(doc.title || doc.slug)}</span>
+      </button>
     `;
+    const button = row.querySelector('[data-action="open"]');
     if (canManageGroup(doc)) {
-      card.addEventListener('dragstart', evt => handleDragStart(evt, doc));
-      card.addEventListener('dragend', handleDragEnd);
-      card.addEventListener('dragover', handleDragOver);
-      card.addEventListener('dragenter', handleDragEnter);
-      card.addEventListener('dragleave', handleDragLeave);
-      card.addEventListener('drop', evt => handleDropToGroup(evt, targetGroup, doc.path));
+      row.draggable = true;
+      row.addEventListener('dragstart', evt => handleDragStart(evt, doc));
+      row.addEventListener('dragend', handleDragEnd);
+      row.addEventListener('dragover', handleDragOver);
+      row.addEventListener('dragenter', handleDragEnter);
+      row.addEventListener('dragleave', handleDragLeave);
+      row.addEventListener('drop', evt => handleDropToGroup(evt, targetGroup, doc.path));
     }
-    card.querySelector('[data-action="open"]').addEventListener('click', () => openDocument(doc.path));
-    if (deletable) {
-      card.querySelector('[data-action="delete"]').addEventListener('click', evt => {
-        evt.stopPropagation();
-        deleteDocument(doc);
-      });
-    }
-    return card;
+    button.addEventListener('click', () => {
+      selectedExplorerGroup = getDocGroup(doc);
+      openDocument(doc.path);
+    });
+    button.addEventListener('contextmenu', evt => {
+      evt.preventDefault();
+      selectedExplorerGroup = getDocGroup(doc);
+      openExplorerContextMenu(evt, { type: 'file', doc });
+    });
+    return row;
   }
 
   function renderGroupSection(group, docsByGroup, level = 1) {
     const docs = docsByGroup.get(group) || [];
     const childGroups = getChildGroups(group).map(item => item.name);
-    const section = document.createElement('section');
-    section.className = 'doc-group-section';
-    section.dataset.group = group;
-    section.setAttribute('role', 'treeitem');
-    section.setAttribute('aria-level', String(level));
-    section.style.setProperty('--group-level', String(Math.max(0, level - 1)));
     const collapsed = isGroupCollapsed(group);
+    const selected = normalizeGroupName(selectedExplorerGroup) === normalizeGroupName(group);
+    const section = document.createElement('section');
+    section.className = 'explorer-node';
+    section.dataset.group = group;
     section.innerHTML = `
-      <button class="doc-group-head" data-action="toggle-group" aria-expanded="${String(!collapsed)}">
-        <span class="doc-group-name">${escapeHtml(getGroupLeafName(group) || displayGroupName(group))}</span>
-        <span class="doc-group-meta">
-          <span class="doc-group-count">${getGroupSubtreeDocumentCount(group)}</span>
-          <span class="doc-group-chevron">${collapsed ? '展开' : '收起'}</span>
-        </span>
+      <button class="explorer-row explorer-folder-row ${selected ? 'is-selected' : ''}" data-action="toggle-group" role="treeitem" aria-level="${String(level)}" aria-expanded="${String(!collapsed)}">
+        ${buildIndent(level - 1)}
+        <span class="explorer-chevron">${collapsed ? '▸' : '▾'}</span>
+        <span class="explorer-icon">D</span>
+        <span class="explorer-label">${escapeHtml(getGroupLeafName(group) || displayGroupName(group))}</span>
+        <span class="explorer-meta">${getGroupSubtreeDocumentCount(group)}</span>
       </button>
-      <div class="doc-group-body ${collapsed ? 'hidden' : ''}" data-group-body="${escapeHtml(group)}" role="group"></div>
+      <div class="explorer-children ${collapsed ? 'hidden' : ''}" data-group-body="${escapeHtml(group)}" role="group"></div>
     `;
     const header = section.querySelector('[data-action="toggle-group"]');
     const body = section.querySelector('[data-group-body]');
-    header.addEventListener('click', () => toggleGroupCollapsed(group));
+    header.addEventListener('click', () => {
+      selectedExplorerGroup = group;
+      if (manageGroupSelect) manageGroupSelect.value = group;
+      updateGroupToolbarState();
+      toggleGroupCollapsed(group);
+    });
+    header.addEventListener('contextmenu', evt => {
+      evt.preventDefault();
+      selectedExplorerGroup = group;
+      if (manageGroupSelect) manageGroupSelect.value = group;
+      updateGroupToolbarState();
+      openExplorerContextMenu(evt, { type: 'group', group });
+    });
     body.addEventListener('dragover', handleDragOver);
     body.addEventListener('dragenter', handleDragEnter);
     body.addEventListener('dragleave', handleDragLeave);
@@ -1622,12 +2154,12 @@ function renderLibraryList() {
       body.appendChild(renderGroupSection(childGroup, docsByGroup, level + 1));
     });
     docs.forEach(doc => {
-      body.appendChild(renderDocCard(doc, group, level + 1));
+      body.appendChild(renderDocNode(doc, group, level + 1));
     });
     if (!childGroups.length && !docs.length) {
       const empty = document.createElement('div');
       empty.className = 'empty-search';
-      empty.textContent = '这个分组目前还没有笔记，可把文档拖到这里。';
+      empty.textContent = '这个文件夹还没有笔记。';
       body.appendChild(empty);
     }
     return section;
@@ -1635,50 +2167,33 @@ function renderLibraryList() {
 
   docList.innerHTML = '';
   const filtered = getFilteredLibrary();
-  const visibleGroups = currentGroupFilter === ALL_GROUPS_VALUE ? getVisibleGroups() : [currentGroupFilter];
-  if (!filtered.length && currentGroupFilter === ALL_GROUPS_VALUE && !visibleGroups.length) {
-    docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
-    docCount.textContent = String(library.length);
-    return;
-  }
   const docsByGroup = new Map();
   filtered.forEach(doc => {
     const key = getDocGroup(doc);
     if (!docsByGroup.has(key)) docsByGroup.set(key, []);
     docsByGroup.get(key).push(doc);
   });
-
-  if (docsByGroup.has('') && currentGroupFilter === ALL_GROUPS_VALUE) {
-    const ungroupedSection = document.createElement('section');
-    ungroupedSection.className = 'doc-group-section';
-    ungroupedSection.dataset.group = '';
-    ungroupedSection.setAttribute('role', 'treeitem');
-    ungroupedSection.setAttribute('aria-level', '1');
-    ungroupedSection.style.setProperty('--group-level', '0');
-    const collapsed = isGroupCollapsed('');
-    ungroupedSection.innerHTML = `
-      <button class="doc-group-head" data-action="toggle-group" aria-expanded="${String(!collapsed)}">
-        <span class="doc-group-name">${escapeHtml(UNGROUPED_LABEL)}</span>
-        <span class="doc-group-meta">
-          <span class="doc-group-count">${docsByGroup.get('').length}</span>
-          <span class="doc-group-chevron">${collapsed ? '展开' : '收起'}</span>
-        </span>
-      </button>
-      <div class="doc-group-body ${collapsed ? 'hidden' : ''}" role="group"></div>
-    `;
-    const header = ungroupedSection.querySelector('[data-action="toggle-group"]');
-    const body = ungroupedSection.querySelector('.doc-group-body');
-    header.addEventListener('click', () => toggleGroupCollapsed(''));
-    docsByGroup.get('').forEach(doc => body.appendChild(renderDocCard(doc, '', 2)));
-    docList.appendChild(ungroupedSection);
-  }
-
   const rootGroups = currentGroupFilter === ALL_GROUPS_VALUE
     ? getChildGroups('').map(group => group.name)
-    : [currentGroupFilter];
-  rootGroups.forEach(group => {
-    if (group) docList.appendChild(renderGroupSection(group, docsByGroup, 1));
-  });
+    : currentGroupFilter
+      ? [currentGroupFilter]
+      : [];
+
+  if (currentGroupFilter === ALL_GROUPS_VALUE) {
+    rootGroups.forEach(group => {
+      docList.appendChild(renderGroupSection(group, docsByGroup, 1));
+    });
+    (docsByGroup.get('') || []).forEach(doc => {
+      docList.appendChild(renderDocNode(doc, '', 1));
+    });
+  } else if (currentGroupFilter === '') {
+    (docsByGroup.get('') || []).forEach(doc => {
+      docList.appendChild(renderDocNode(doc, '', 1));
+    });
+  } else if (currentGroupFilter) {
+    docList.appendChild(renderGroupSection(currentGroupFilter, docsByGroup, 1));
+  }
+
   if (!docList.children.length) {
     docList.innerHTML = '<div class="empty-search">当前筛选条件下没有文档。</div>';
   }
@@ -1687,18 +2202,22 @@ function renderLibraryList() {
 }
 
 function syncActiveCard() {
-  docList.querySelectorAll('.doc-card').forEach(card => {
-    card.classList.toggle('active', currentDoc && card.dataset.path === currentDoc.path);
+  docList.querySelectorAll('.explorer-file-row').forEach(row => {
+    row.classList.toggle('is-active', currentDoc && row.dataset.path === currentDoc.path);
   });
 }
 
 async function loadLibrary() {
   const data = await fetchJson(LIBRARY_URL);
   libraryGroups = (data.groups || []).map((group, index) => ({
-    name: normalizeGroupName(group.name),
+    name: migrateGuideGroupName(group.name),
     order: Number.isFinite(Number(group.order)) ? Number(group.order) : index + 1
   })).filter(group => group.name);
-  library = sortDocuments(data.documents || []);
+  library = sortDocuments((data.documents || []).map((doc, index) => ({
+    ...doc,
+    group: migrateGuideGroupName(doc.group),
+    order: Number.isFinite(Number(doc.order)) ? Number(doc.order) : index + 1
+  })));
   docSelect.innerHTML = '';
   library.forEach(doc => {
     const option = document.createElement('option');
@@ -1738,7 +2257,8 @@ function findDocByHash() {
 async function openDocument(path, section = '') {
   const doc = library.find(item => item.path === path) || library[0];
   currentDoc = doc;
-  const groupParts = splitGroupName(doc.group);
+  selectedExplorerGroup = getDocGroup(doc);
+  const groupParts = splitGroupName(getDocGroup(doc));
   if (groupParts.length) {
     let changed = false;
     for (let i = 1; i <= groupParts.length; i++) {
@@ -1765,6 +2285,7 @@ async function openDocument(path, section = '') {
   permalink.textContent = `#doc=${doc.slug}`;
   history.replaceState(null, '', hashForDoc(doc, section));
   syncActiveCard();
+  renderOpenEditors();
   updateDeleteButtonState();
   updateGroupToolbarState();
   setStatus(`已打开：${doc.title}`);
@@ -1808,13 +2329,15 @@ function createBlankDocument() {
   docSlugInput.value = 'untitled';
   editor.value = blankMarkdown;
   localStorage.removeItem(currentCacheKey());
-  render(!richMode);
-  openEditor(true);
+  updateRichMode(true);
+  render(false);
+  openEditor(false);
   docPath.textContent = 'adhoc / 新建空白文档';
   permalink.href = '#';
   permalink.textContent = '未保存文档';
   history.replaceState(null, '', '#');
   syncActiveCard();
+  renderOpenEditors();
   updateDeleteButtonState();
   updateGroupToolbarState();
   setStatus('已创建空白文档，编辑后点击“保存到站点”即可落盘');
@@ -1886,6 +2409,14 @@ async function deleteGroup(name) {
   });
 }
 
+async function renameDocumentRequest(path, title) {
+  return fetchJson('/api/rename-document', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, title })
+  });
+}
+
 async function publishSharedNotes(payload) {
   return fetchJson('/api/publish-shared-notes', {
     method: 'POST',
@@ -1894,8 +2425,9 @@ async function publishSharedNotes(payload) {
   });
 }
 
-async function fetchSharedNotesList() {
-  return fetchJson('/api/shared-notes');
+async function fetchSharedNotesList(options = {}) {
+  const url = options.forceScan ? '/api/shared-notes?mode=scan' : '/api/shared-notes';
+  return fetchJson(url);
 }
 
 async function importSharedNotesBranch(branchName) {
@@ -1920,6 +2452,174 @@ async function createManagedGroup() {
   manageGroupSelect.value = fullName;
   updateGroupToolbarState();
   setStatus(`已新建分组：${fullName}`);
+}
+
+function getExplorerTargetGroup() {
+  return normalizeGroupName(selectedExplorerGroup || getManagedGroupValue() || getDocGroup(currentDoc));
+}
+
+async function createFolderFromExplorer() {
+  const parent = getExplorerTargetGroup();
+  const label = parent ? `在“${parent}”下新建文件夹` : '在顶层新建文件夹';
+  const leafName = prompt(`${label}\n\n请输入文件夹名称：`, '');
+  if (!leafName) return;
+  const normalizedLeaf = validateGroupNameOrThrow(leafName);
+  if (normalizedLeaf.includes('/')) {
+    showIllegalAction('通过资源管理器新建文件夹时，请只输入当前这一层名称');
+    return;
+  }
+  await createGroup(normalizedLeaf, parent);
+  selectedExplorerGroup = parent ? `${parent}/${normalizedLeaf}` : normalizedLeaf;
+  await loadLibrary();
+  updateGroupToolbarState();
+  setStatus(`已新建文件夹：${selectedExplorerGroup}`);
+}
+
+function createBlankDocumentFromExplorer() {
+  const targetGroup = getExplorerTargetGroup();
+  if (currentGroupSelect) currentGroupSelect.value = targetGroup;
+  if (groupInput) groupInput.value = targetGroup;
+  createBlankDocument();
+}
+
+async function importFromExplorerShortcut() {
+  const input = prompt('请输入网页地址：', (urlInput?.value || '').trim());
+  if (input == null) return;
+  if (urlInput) urlInput.value = input.trim();
+  const targetGroup = getExplorerTargetGroup();
+  if (currentGroupSelect) currentGroupSelect.value = targetGroup;
+  if (groupInput) groupInput.value = targetGroup;
+  setActiveSidebarPanel('sync');
+  await importUrl('preview');
+}
+
+async function renameGroupFromExplorer(group) {
+  const oldName = normalizeGroupName(group);
+  if (!oldName) {
+    showIllegalAction('请先选择一个要重命名的文件夹');
+    return;
+  }
+  const leafName = prompt(`重命名文件夹“${oldName}”\n\n请输入新的文件夹名称：`, getGroupLeafName(oldName));
+  if (!leafName) return;
+  const normalizedLeaf = validateGroupNameOrThrow(leafName);
+  if (normalizedLeaf.includes('/')) {
+    showIllegalAction('重命名文件夹时，请只输入当前这一层的新名称');
+    return;
+  }
+  const parent = getGroupParentName(oldName);
+  const newName = parent ? `${parent}/${normalizedLeaf}` : normalizedLeaf;
+  await renameGroup(oldName, newName);
+  if (currentGroupFilter === oldName) currentGroupFilter = newName;
+  selectedExplorerGroup = newName;
+  await loadLibrary();
+  updateGroupToolbarState();
+  setStatus(`已重命名文件夹：${oldName} -> ${newName}`);
+}
+
+async function deleteGroupFromExplorer(group) {
+  const name = normalizeGroupName(group);
+  if (!name) {
+    showIllegalAction('请先选择一个要删除的文件夹');
+    return;
+  }
+  const subtreeCount = getGroupSubtreeDocumentCount(name);
+  const childGroupCount = getChildGroupCount(name);
+  if (subtreeCount > 0) {
+    showIllegalAction('这个文件夹或其子文件夹下还有笔记，不能删除');
+    return;
+  }
+  if (childGroupCount > 0) {
+    showIllegalAction('这个文件夹下还有子文件夹，不能删除');
+    return;
+  }
+  const ok = confirm(`确定删除空文件夹“${name}”吗？`);
+  if (!ok) return;
+  await deleteGroup(name);
+  if (currentGroupFilter === name) currentGroupFilter = ALL_GROUPS_VALUE;
+  if (selectedExplorerGroup === name) selectedExplorerGroup = '';
+  await loadLibrary();
+  updateGroupToolbarState();
+  setStatus(`已删除空文件夹：${name}`);
+}
+
+async function renameDocumentFromExplorer(doc) {
+  if (!canManageGroup(doc)) {
+    showIllegalAction('当前文档不能通过资源管理器重命名');
+    return;
+  }
+  const nextTitle = prompt(`重命名文档“${doc.title || doc.slug}”\n\n请输入新的文件名：`, doc.title || doc.slug);
+  if (!nextTitle) return;
+  const cleanTitle = nextTitle.trim();
+  if (!cleanTitle) return;
+  const result = await renameDocumentRequest(doc.path, cleanTitle);
+  localStorage.removeItem(cacheKeyForPath(doc.path));
+  await loadLibrary();
+  await rebuildSearchIndex();
+  selectedExplorerGroup = getDocGroup(result.document);
+  await openDocument(result.document.path);
+  setStatus(`已重命名文档：${cleanTitle}`);
+}
+
+async function copyDocumentPath(doc) {
+  const path = doc?.path || '';
+  if (!path) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(path);
+      setStatus(`已复制路径：${path}`);
+      return;
+    }
+  } catch (_) {
+  }
+  window.prompt('复制这个路径：', path);
+}
+
+async function handleExplorerContextAction(action, state) {
+  if (!state) return;
+  if (state.type === 'group') {
+    selectedExplorerGroup = normalizeGroupName(state.group);
+    if (manageGroupSelect) manageGroupSelect.value = selectedExplorerGroup;
+    updateGroupToolbarState();
+    if (action === 'new-file') {
+      createBlankDocumentFromExplorer();
+      return;
+    }
+    if (action === 'new-folder') {
+      await createFolderFromExplorer();
+      return;
+    }
+    if (action === 'import-url') {
+      await importFromExplorerShortcut();
+      return;
+    }
+    if (action === 'rename') {
+      await renameGroupFromExplorer(state.group);
+      return;
+    }
+    if (action === 'delete') {
+      await deleteGroupFromExplorer(state.group);
+    }
+    return;
+  }
+
+  if (state.type === 'file') {
+    if (action === 'open') {
+      selectedExplorerGroup = getDocGroup(state.doc);
+      await openDocument(state.doc.path);
+      return;
+    }
+    if (action === 'rename') {
+      await renameDocumentFromExplorer(state.doc);
+      return;
+    }
+    if (action === 'delete') {
+      await deleteDocument(state.doc);
+      return;
+    }
+    if (action === 'copy-path') {
+      await copyDocumentPath(state.doc);
+    }
+  }
 }
 
 async function renameManagedGroup() {
@@ -2053,8 +2753,10 @@ async function deleteDocument(doc = currentDoc) {
   if (nextDoc) {
     await openDocument(nextDoc.path);
   } else {
+    currentDoc = null;
     renderGroupSelectors();
     renderLibraryList();
+    renderOpenEditors();
     updateGroupToolbarState();
   }
   setStatus(`已删除：${doc.title || doc.slug}`);
@@ -2080,9 +2782,11 @@ async function importUrl(mode) {
     };
     originalContent = data.markdown;
     editor.value = data.markdown;
-    render(!richMode);
-    openEditor(true);
+    updateRichMode(true);
+    render(false);
+    openEditor(false);
     docPath.textContent = 'adhoc / 未保存导入';
+    renderOpenEditors();
     updateGroupToolbarState();
     setStatus(`已导入到编辑区：${data.title}（${importSummary}）`);
     return;
@@ -2171,7 +2875,7 @@ editor.addEventListener('input', () => {
   if (currentDoc && currentDoc.type !== 'main') {
     docSlugInput.value = slugify(docSlugInput.value || currentDoc.slug || docTitleInput.value);
   }
-  if (!richMode) render(true);
+  if (!richMode || !editorDrawer.classList.contains('hidden')) render(true);
 });
 
 docTitleInput.addEventListener('input', () => {
@@ -2182,6 +2886,59 @@ docSelect.addEventListener('change', async () => openDocument(docSelect.value));
 searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(runSearch, 160);
+});
+document.querySelectorAll('[data-activity-panel]').forEach(btn => {
+  btn.addEventListener('click', () => setActiveSidebarPanel(btn.dataset.activityPanel));
+});
+activitySourceBtn?.addEventListener('click', () => openEditor(editorDrawer.classList.contains('hidden')));
+explorerCreateBtn?.addEventListener('click', evt => {
+  evt.stopPropagation();
+  setExplorerCreateMenuOpen(explorerCreateMenu.classList.contains('hidden'));
+});
+explorerMenuImportBtn?.addEventListener('click', async () => {
+  setExplorerCreateMenuOpen(false);
+  try {
+    await importFromExplorerShortcut();
+  } catch (err) {
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('网页导入失败', err);
+  }
+});
+explorerNewFolderBtn?.addEventListener('click', async () => {
+  setExplorerCreateMenuOpen(false);
+  try {
+    await createFolderFromExplorer();
+  } catch (err) {
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('新建文件夹失败', err);
+  }
+});
+document.addEventListener('click', evt => {
+  const target = evt.target;
+  if (explorerCreateMenu && explorerCreateBtn && !explorerCreateMenu.classList.contains('hidden')) {
+    if (!(target instanceof Node) || (!explorerCreateMenu.contains(target) && !explorerCreateBtn.contains(target))) {
+      setExplorerCreateMenuOpen(false);
+    }
+  }
+  if (explorerContextMenu && !explorerContextMenu.classList.contains('hidden')) {
+    if (!(target instanceof Node) || !explorerContextMenu.contains(target)) {
+      closeExplorerContextMenu();
+    }
+  }
+});
+document.addEventListener('scroll', closeExplorerContextMenu, true);
+explorerContextMenu?.addEventListener('click', async evt => {
+  const button = evt.target.closest('[data-menu-action]');
+  if (!button || !explorerContextState) return;
+  const state = explorerContextState;
+  const action = button.dataset.menuAction;
+  closeExplorerContextMenu();
+  try {
+    await handleExplorerContextAction(action, state);
+  } catch (err) {
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('资源管理器操作失败', err);
+  }
 });
 groupFilterSelect.addEventListener('change', () => {
   currentGroupFilter = groupFilterSelect.value;
@@ -2284,6 +3041,15 @@ saveBtn.addEventListener('click', async () => {
   }
 });
 
+settingsSaveBtn?.addEventListener('click', async () => {
+  try {
+    await saveCurrentDocument();
+  } catch (err) {
+    if (looksLikeIllegalAction(err.message)) showIllegalAction(err.message);
+    else showRequestError('保存失败', err);
+  }
+});
+
 downloadBtn.addEventListener('click', () => {
   const blob = new Blob([editor.value], { type: 'text/markdown;charset=utf-8' });
   const a = document.createElement('a');
@@ -2329,41 +3095,45 @@ if (closeSharedBrowseModalBtn) {
 if (refreshSharedNotesBtn) {
   refreshSharedNotesBtn.addEventListener('click', async () => {
     try {
-      await refreshSharedNotesList();
+      await refreshSharedNotesList({ forceScan: true });
     } catch (err) {
       showRequestError('共享笔记列表刷新失败', err);
     }
   });
 }
-[shareAcademyInput, shareMajorInput, shareYearInput].forEach(input => {
+[sharedSearchInput, sharedAcademyFilter, sharedMajorFilter, sharedYearFilter].forEach(input => {
+  input?.addEventListener('input', () => renderSharedNotesList(sharedNotesCache, sharedNotesSource));
+  input?.addEventListener('change', () => renderSharedNotesList(sharedNotesCache, sharedNotesSource));
+});
+[shareAuthorInput, shareAcademyInput, shareMajorInput, shareYearInput].forEach(input => {
   input?.addEventListener('input', updateShareBranchPreview);
+  input?.addEventListener('change', persistShareProfile);
+});
+[shareTagsInput, shareSummaryInput].forEach(input => {
   input?.addEventListener('change', persistShareProfile);
 });
 if (confirmSharePublishBtn) {
   confirmSharePublishBtn.addEventListener('click', async () => {
+    const author = (shareAuthorInput?.value || '').trim();
     const academy = (shareAcademyInput?.value || '').trim();
     const major = (shareMajorInput?.value || '').trim();
     const year = (shareYearInput?.value || '').trim();
+    const tags = (shareTagsInput?.value || '').trim();
+    const summary = (shareSummaryInput?.value || '').trim();
     if (!academy || !major || !year) {
       setStatus('请先填写学院、专业和年级', true);
       return;
     }
     persistShareProfile();
-    confirmSharePublishBtn.disabled = true;
-    sharePublishMeta.textContent = '正在创建或更新共享分支并推送到 GitHub…';
-    try {
-      const result = await publishSharedNotes({ academy, major, year });
-      sharePublishMeta.textContent = `上传完成：${result.branchName}，共同步 ${result.documentCount} 篇笔记。`;
-      setStatus(`共享分支已上传：${result.branchName}`);
-      closeSharePublishModal();
-    } catch (err) {
-      sharePublishMeta.textContent = '上传失败，请检查 GitHub 凭据、远程地址和网络连接。';
-      showRequestError('共享上传失败', err);
-    } finally {
-      confirmSharePublishBtn.disabled = false;
-    }
+    sharePublishMeta.textContent = '上传任务已转入后台，关闭窗口后也会继续执行。';
+    await startShareUploadTask({ author, academy, major, year, tags, summary });
   });
 }
+retryShareUploadBtn?.addEventListener('click', async () => {
+  if (!shareUploadTaskState.payload) return;
+  await startShareUploadTask(shareUploadTaskState.payload);
+});
+dismissShareUploadBtn?.addEventListener('click', dismissShareUploadTask);
 if (exitSiteBtn) {
   exitSiteBtn.addEventListener('click', async () => {
     try {
@@ -2423,7 +3193,10 @@ if (toggleFocusBtn) {
   toggleFocusBtn.addEventListener('click', toggleFocusMode);
 }
 if (newBlankBtn) {
-  newBlankBtn.addEventListener('click', createBlankDocument);
+  newBlankBtn.addEventListener('click', () => {
+    setExplorerCreateMenuOpen(false);
+    createBlankDocumentFromExplorer();
+  });
 }
 if (toggleTocBtn) {
   toggleTocBtn.addEventListener('click', () => setTocVisible(!tocVisible));
@@ -2433,6 +3206,7 @@ rightResizer.addEventListener('pointerdown', evt => startResize('right', evt));
 window.addEventListener('resize', () => {
   applyLayoutState();
   updateStickyOffset();
+  closeExplorerContextMenu();
 });
 if (window.ResizeObserver && topbar) {
   new ResizeObserver(updateStickyOffset).observe(topbar);
@@ -2455,8 +3229,8 @@ richToolbar.addEventListener('click', evt => {
   if (!btn || !richMode) return;
   const cmd = btn.dataset.cmd;
   preview.focus();
-  if (cmd === 'h2') {
-    execRichCommand('formatBlock', 'h2');
+  if (/^h[1-6]$/.test(cmd)) {
+    execRichCommand('formatBlock', cmd);
   } else if (cmd === 'blockquote') {
     insertRichQuoteBlock();
   } else if (cmd === 'code') {
@@ -2464,6 +3238,8 @@ richToolbar.addEventListener('click', evt => {
   } else if (cmd === 'createLink') {
     const link = prompt('请输入链接地址：', 'https://');
     if (link) execRichCommand('createLink', link);
+  } else if (cmd === 'hr') {
+    execRichCommand('insertHorizontalRule');
   } else {
     execRichCommand(cmd, null);
   }
@@ -2482,12 +3258,18 @@ if (sharedNotesList) {
       const result = await importSharedNotesBranch(branchName);
       await loadLibrary();
       await rebuildSearchIndex();
-      renderSharedNotesList(sharedNotesCache);
+      renderSharedNotesList(sharedNotesCache, sharedNotesSource);
       if (result.documents?.[0]?.path) {
         await openDocument(result.documents[0].path);
       }
-      setStatus(`已导入共享笔记：${branchName}（${result.documentCount} 篇）`);
-      sharedNotesMeta.textContent = `已导入 ${branchName}，共 ${result.documentCount} 篇笔记。`;
+      const removedCount = Number(result.removedCount || 0);
+      const syncSummary = removedCount
+        ? `已同步共享笔记：${branchName}（导入 ${result.documentCount} 篇，清理旧内容 ${removedCount} 篇）`
+        : `已导入共享笔记：${branchName}（${result.documentCount} 篇）`;
+      setStatus(syncSummary);
+      sharedNotesMeta.textContent = removedCount
+        ? `已同步 ${branchName}，导入 ${result.documentCount} 篇，清理旧内容 ${removedCount} 篇。`
+        : `已导入 ${branchName}，共 ${result.documentCount} 篇笔记。`;
     } catch (err) {
       sharedNotesMeta.textContent = `导入 ${branchName} 失败。`;
       showRequestError('共享笔记导入失败', err);
@@ -2507,34 +3289,7 @@ document.querySelectorAll('[data-close-modal]').forEach(node => {
 
 
 
-preview.addEventListener('input', () => {
-  if (!richMode) return;
-  editor.value = htmlToMarkdown(preview.innerHTML);
-  localStorage.setItem(currentCacheKey(), editor.value);
-  buildTOC();
-});
-
-richToolbar.addEventListener('click', evt => {
-  const btn = evt.target.closest('button[data-cmd]');
-  if (!btn || !richMode) return;
-  const cmd = btn.dataset.cmd;
-  preview.focus();
-  if (cmd === 'h2') {
-    execRichCommand('formatBlock', 'h2');
-  } else if (cmd === 'blockquote') {
-    execRichCommand('formatBlock', 'blockquote');
-  } else if (cmd === 'code') {
-    execRichCommand('insertHTML', '<code>代码</code>');
-  } else if (cmd === 'createLink') {
-    const link = prompt('请输入链接地址：', 'https://');
-    if (link) execRichCommand('createLink', link);
-  } else {
-    execRichCommand(cmd, null);
-  }
-  editor.value = htmlToMarkdown(preview.innerHTML);
-  localStorage.setItem(currentCacheKey(), editor.value);
-  buildTOC();
-});
+preview.addEventListener('keydown', handleRichKeydown);
 
 window.addEventListener('hashchange', async () => {
   if (!library.length) return;
@@ -2557,8 +3312,8 @@ document.addEventListener('keydown', async evt => {
     try { await saveCurrentDocument(); } catch (err) { setStatus(`保存失败：${err.message}`, true); }
   }
   if (evt.key === 'Escape') {
+    setExplorerCreateMenuOpen(false);
     openEditor(false);
-    if (treeDrawerOpen) setTreeDrawerOpen(false);
     closeSharePublishModal();
     closeSharedBrowseModal();
   }
@@ -2578,6 +3333,7 @@ async function init() {
   focusMode = localStorage.getItem(FOCUS_MODE_STORAGE_KEY) === '1';
   tocVisible = localStorage.getItem(TOC_VISIBLE_STORAGE_KEY) !== '0';
   applyShareProfile(readShareProfile());
+  renderShareUploadTask();
   if (exitSiteBtn) {
     exitSiteBtn.disabled = STATIC_HOST;
     exitSiteBtn.title = STATIC_HOST ? '静态只读模式下无法关闭本地服务' : '停止本地服务并关闭页面';
@@ -2593,16 +3349,21 @@ async function init() {
   if (STATIC_HOST) {
     setStatus('当前是静态只读模式：可阅读、搜索、导航；保存和网址导入需要本地服务端。');
   }
+  setTopbarHidden(false);
+  lastScrollY = Math.max(window.scrollY || 0, 0);
   updateStickyOffset();
   applyLayoutState();
+  applySidebarPanelState();
   applyTreeDrawerState();
   applyTocState();
   await loadLibrary();
   await rebuildSearchIndex();
   const { doc, section } = findDocByHash();
   await openDocument(doc.path, section);
+  updateRichMode(true);
   openEditor(false);
-  document.body.classList.add('reading-mode');
+  renderOpenEditors();
+  document.body.classList.remove('reading-mode');
   updateDeleteButtonState();
   updateGroupToolbarState();
 }

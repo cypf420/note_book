@@ -1,0 +1,53 @@
+name: Build Shared Index
+
+on:
+  push:
+    branches:
+      - 'notes/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-shared-index
+  cancel-in-progress: false
+
+jobs:
+  build-shared-index:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install shared index dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests beautifulsoup4 markdownify ftfy
+
+      - name: Fetch contributor branches
+        run: git fetch origin "+refs/heads/notes/*:refs/remotes/origin/notes/*"
+
+      - name: Build central shared index
+        run: python infosec_project_full/editable_note_site/scripts/build_shared_index.py
+
+      - name: Commit updated shared index
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infosec_project_full/editable_note_site/shared_notes/shared-index.json
+          if git diff --cached --quiet; then
+            echo "No shared index changes."
+            exit 0
+          fi
+          git commit -m "Build shared index"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"

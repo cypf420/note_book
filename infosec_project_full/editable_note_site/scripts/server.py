@@ -11,7 +11,7 @@ import webbrowser
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -54,6 +54,9 @@ SERVER_STATE_FILE = RUNTIME_DIR / 'server-state.json'
 STOP_BAT_FILE = ROOT / 'stop.bat'
 SHARED_NOTES_DIRNAME = 'shared_notes'
 SHARED_NOTES_LOCAL_DIR = ROOT / SHARED_NOTES_DIRNAME
+SHARED_INDEX_FILENAME = 'shared-index.json'
+SHARED_INDEX_FILE = SHARED_NOTES_LOCAL_DIR / SHARED_INDEX_FILENAME
+SHARE_BRANCH_PREFIX = 'notes/'
 AUTOMATION_COMMIT_NAME = 'Note Book Publisher'
 AUTOMATION_COMMIT_EMAIL = 'note-book@local.invalid'
 HEADERS = {'User-Agent': 'EditableNoteSite/3.0 (+https://127.0.0.1)'}
@@ -61,6 +64,8 @@ SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 MAX_IMPORT_IMAGES = 80
 ALLOWED_IMG_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif'}
+GUIDE_GROUP_NAME = '新手引导'
+LEGACY_GUIDE_GROUP_NAME = '帮助'
 
 
 def slugify(text: str) -> str:
@@ -111,31 +116,152 @@ def ensure_git_remote_origin() -> str:
     return remote
 
 
-def normalize_share_value(value: str | None, label: str) -> str:
-    text = (value or '').strip()
+def shared_index_repo_path() -> Path:
+    if SITE_REPO_ROOT == Path('.'):
+        return Path(SHARED_NOTES_DIRNAME) / SHARED_INDEX_FILENAME
+    return SITE_REPO_ROOT / SHARED_NOTES_DIRNAME / SHARED_INDEX_FILENAME
+
+
+def normalize_share_text(value: str | None, label: str, *, allow_empty: bool = False, max_len: int = 160) -> str:
+    text = re.sub(r'\s+', ' ', (value or '').strip())
     if not text:
+        if allow_empty:
+            return ''
         raise ValueError(f'{label}不能为空')
+    text = text.strip(' ./-_')
+    if not text:
+        if allow_empty:
+            return ''
+        raise ValueError(f'{label}不能为空')
+    if text.endswith('.lock') or '..' in text or '@{' in text:
+        raise ValueError(f'{label}格式不合法')
+    return text[:max_len]
+
+
+def normalize_share_value(value: str | None, label: str) -> str:
+    text = normalize_share_text(value, label)
     text = re.sub(r'\s+', '', text)
     text = re.sub(r'[^\w\u4e00-\u9fa5-]+', '_', text, flags=re.UNICODE)
     text = re.sub(r'_+', '_', text).strip('._-/')
     if not text:
         raise ValueError(f'{label}不能为空')
-    if text.endswith('.lock') or '..' in text or '@{' in text:
+    return text[:80]
+
+
+def slugify_share_branch_part(value: str | None, label: str) -> str:
+    text = normalize_share_text(value, label)
+    text = re.sub(r'\s+', '-', text)
+    text = re.sub(r'[^\w\u4e00-\u9fa5-]+', '-', text, flags=re.UNICODE)
+    text = re.sub(r'-+', '-', text).strip('-.')
+    if not text:
         raise ValueError(f'{label}格式不合法')
     return text[:80]
 
 
-def build_shared_branch_name(academy: str, major: str, year: str) -> tuple[str, dict]:
-    academy_name = normalize_share_value(academy, '学院')
-    major_name = normalize_share_value(major, '专业')
-    year_name = normalize_share_value(year, '年级')
-    branch_name = f'{academy_name}_{major_name}_{year_name}'
-    if branch_name.startswith('/') or branch_name.endswith('/') or branch_name.startswith('.'):
+def get_git_config_value(key: str) -> str:
+    result = run_git(['config', '--get', key], check=False)
+    return (result.stdout or '').strip()
+
+
+def get_remote_default_branch_name() -> str:
+    result = run_git(['ls-remote', '--symref', 'origin', 'HEAD'], check=False)
+    for line in result.stdout.splitlines():
+        if not line.startswith('ref: '):
+            continue
+        ref = line.split('\t', 1)[0].split(' ', 1)[1].strip()
+        if ref.startswith('refs/heads/'):
+            return ref[len('refs/heads/'):]
+    return 'main'
+
+
+def detect_share_author(remote_url: str = '') -> str:
+    repo_info = parse_github_repo(remote_url) if remote_url else {}
+    email = get_git_config_value('user.email')
+    email_local = email.split('@', 1)[0].strip() if '@' in email else email.strip()
+    candidates = [
+        get_git_config_value('user.name'),
+        email_local,
+        os.environ.get('GITHUB_ACTOR', ''),
+        os.environ.get('USERNAME', ''),
+        os.environ.get('USER', ''),
+        repo_info.get('owner', ''),
+    ]
+    for candidate in candidates:
+        text = normalize_share_text(candidate, '作者', allow_empty=True, max_len=80)
+        if text:
+            return text
+    return 'anonymous'
+
+
+def normalize_share_tags(value: str | list[str] | None) -> list[str]:
+    if value is None:
+        return []
+    raw_items = value if isinstance(value, list) else re.split(r'[\n,，;；]+', str(value))
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        text = normalize_share_text(item, '标签', allow_empty=True, max_len=32)
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        tags.append(text)
+        if len(tags) >= 12:
+            break
+    return tags
+
+
+def derive_share_tags(value: str | list[str] | None, library_data: dict) -> list[str]:
+    tags = normalize_share_tags(value)
+    if tags:
+        return tags
+    inferred: list[str] = []
+    for group in library_data.get('groups', []):
+        leaf = group_leaf_name(group.get('name'))
+        if leaf and leaf not in {GUIDE_GROUP_NAME, '共享笔记'}:
+            inferred.append(leaf)
+    for doc in sort_documents_for_share(library_data.get('documents', [])):
+        title = normalize_share_text(doc.get('title'), '标签', allow_empty=True, max_len=32)
+        if title:
+            inferred.append(title)
+        if len(inferred) >= 12:
+            break
+    return normalize_share_tags(inferred)
+
+
+def derive_share_summary(value: str | None, library_data: dict) -> str:
+    summary = normalize_share_text(value, '简介', allow_empty=True, max_len=200)
+    if summary:
+        return summary
+    documents = sort_documents_for_share(library_data.get('documents', []))
+    if not documents:
+        return '当前共享分支还没有写入笔记内容。'
+    titles = [normalize_share_text(doc.get('title'), '标题', allow_empty=True, max_len=48) for doc in documents]
+    titles = [title for title in titles if title]
+    if not titles:
+        return f'共享 {len(documents)} 篇本地 Markdown 笔记。'
+    preview = '、'.join(titles[:3])
+    if len(titles) > 3:
+        preview += ' 等'
+    return f'共享 {len(documents)} 篇本地 Markdown 笔记，涵盖 {preview}。'
+
+
+def build_shared_branch_name(academy: str, major: str, year: str, author: str | None = None, remote_url: str = '') -> tuple[str, dict]:
+    academy_name = normalize_share_text(academy, '学院', max_len=80)
+    major_name = normalize_share_text(major, '专业', max_len=80)
+    year_name = normalize_share_text(year, '年级', max_len=40)
+    author_name = normalize_share_text(author, '作者', allow_empty=True, max_len=80) or detect_share_author(remote_url)
+    branch_name = f'{SHARE_BRANCH_PREFIX}{slugify_share_branch_part(academy_name, "学院")}-{slugify_share_branch_part(major_name, "专业")}-{slugify_share_branch_part(year_name, "年级")}-{slugify_share_branch_part(author_name, "作者")}'
+    if branch_name.endswith('/') or branch_name.startswith('.') or branch_name.startswith('/'):
         raise ValueError('生成的分支名不合法')
     return branch_name, {
         'academy': academy_name,
         'major': major_name,
         'year': year_name,
+        'author': author_name,
+        'authorSlug': slugify_share_branch_part(author_name, '作者'),
     }
 
 
@@ -169,13 +295,24 @@ def safe_rmtree(path: Path) -> None:
 def build_shared_documents_preview(documents: list[dict]) -> list[dict]:
     preview = []
     for doc in sort_documents_for_share(documents):
+        path = str(doc.get('path') or '')
+        updated_at = ''
+        try:
+            source_rel = validate_doc_path(path).lstrip('./')
+            source_file = ROOT / source_rel
+            if source_file.exists() and source_file.is_file():
+                updated_at = datetime.fromtimestamp(source_file.stat().st_mtime, timezone.utc).isoformat()
+        except Exception:
+            updated_at = ''
         preview.append({
             'title': doc.get('title', ''),
             'slug': doc.get('slug', ''),
             'group': normalize_group_name(doc.get('group')),
             'type': doc.get('type', 'import'),
-            'path': doc.get('path', ''),
+            'path': path,
             'order': int(doc.get('order', 0) or 0),
+            'sourceUrl': doc.get('sourceUrl', ''),
+            'updatedAt': updated_at,
         })
     return preview
 
@@ -194,32 +331,158 @@ def sort_documents_for_share(documents: list[dict]) -> list[dict]:
     return sorted(documents, key=key)
 
 
+def shared_branch_marker(branch_name: str) -> str:
+    return f'github-branch:{branch_name}'
+
+
+def is_shared_import_entry(doc: dict, branch_name: str | None = None) -> bool:
+    shared_from_branch = str(doc.get('sharedFromBranch') or '').strip()
+    source_url = str(doc.get('sourceUrl') or '').strip()
+    group = normalize_group_name(doc.get('group'))
+    slug = str(doc.get('slug') or '').strip()
+    if branch_name:
+        branch_slug = slugify(branch_name)
+        if shared_from_branch == branch_name or source_url == shared_branch_marker(branch_name):
+            return True
+        return group.startswith('共享笔记/') and slug.startswith(f'{branch_slug}-')
+    return bool(shared_from_branch) or source_url.startswith('github-branch:') or group.startswith('共享笔记/')
+
+
+def collect_shareable_library_data(library_data: dict) -> dict:
+    documents = [
+        dict(doc)
+        for doc in sort_documents_for_share(library_data.get('documents', []))
+        if not is_shared_import_entry(doc)
+    ]
+    return normalize_library_data({
+        'groups': [],
+        'documents': documents,
+    })
+
+
+def build_shared_import_target(branch_name: str, original_slug: str) -> tuple[str, str]:
+    branch_slug = slugify(branch_name)
+    target_slug = slugify(f'{branch_slug}-{original_slug}')
+    return target_slug, f'content/imports/{target_slug}.md'
+
+
+def build_manifest_url(repo_info: dict, branch_name: str) -> str:
+    if not repo_info.get('hostedOnGitHub'):
+        return ''
+    owner = repo_info.get('owner', '')
+    repo = repo_info.get('repo', '')
+    manifest_path = bundle_repo_path('manifest.json').as_posix()
+    return f'https://github.com/{owner}/{repo}/blob/{quote(branch_name, safe="")}/{manifest_path}'
+
+
+def build_branch_url(repo_info: dict, branch_name: str) -> str:
+    if not repo_info.get('hostedOnGitHub'):
+        return ''
+    owner = repo_info.get('owner', '')
+    repo = repo_info.get('repo', '')
+    site_root = '.' if SITE_REPO_ROOT == Path('.') else SITE_REPO_ROOT.as_posix()
+    return f'https://github.com/{owner}/{repo}/tree/{quote(branch_name, safe="")}/{site_root}'
+
+
+def build_shared_index_item(manifest: dict, branch_name: str | None = None) -> dict:
+    documents = manifest.get('documents', [])
+    repo = dict(manifest.get('repo') or {})
+    resolved_branch_name = manifest.get('branchName') or branch_name or ''
+    author = manifest.get('author', '') or repo.get('owner', '') or ''
+    author_slug = manifest.get('authorSlug', '') or (slugify(author) if author else '')
+    if repo.get('hostedOnGitHub') and resolved_branch_name:
+        repo.setdefault('branchUrl', build_branch_url(repo, resolved_branch_name))
+        repo.setdefault('manifestUrl', build_manifest_url(repo, resolved_branch_name))
+    item = {
+        'branchName': resolved_branch_name,
+        'author': author,
+        'authorSlug': author_slug,
+        'academy': manifest.get('academy', ''),
+        'major': manifest.get('major', ''),
+        'year': manifest.get('year', ''),
+        'publishedAt': manifest.get('publishedAt', ''),
+        'documentCount': int(manifest.get('documentCount', 0) or 0),
+        'groupCount': int(manifest.get('groupCount', 0) or 0),
+        'tags': normalize_share_tags(manifest.get('tags')),
+        'summary': manifest.get('summary', ''),
+        'documents': documents[:10] if isinstance(documents, list) else [],
+        'manifestPath': manifest.get('manifestPath') or bundle_repo_path('manifest.json').as_posix(),
+        'manifestUrl': manifest.get('manifestUrl') or repo.get('manifestUrl') or '',
+        'repo': repo,
+    }
+    return item
+
+
+def sort_shared_index_items(items: list[dict]) -> list[dict]:
+    def key(item: dict) -> tuple[str, str]:
+        return (item.get('publishedAt', ''), item.get('branchName', ''))
+
+    return sorted(items, key=key, reverse=True)
+
+
+def is_share_branch_name(branch_name: str) -> bool:
+    text = (branch_name or '').strip()
+    return text.startswith(SHARE_BRANCH_PREFIX) or text.count('_') >= 2
+
+
 def build_shared_manifest(branch_name: str, profile: dict, remote_url: str, library_data: dict) -> dict:
     documents = sort_documents_for_share(library_data.get('documents', []))
     groups = library_data.get('groups', [])
     repo_info = parse_github_repo(remote_url)
     bundle_root = bundle_repo_path().as_posix()
+    manifest_path = bundle_repo_path('manifest.json').as_posix()
+    repo_info['branchUrl'] = build_branch_url(repo_info, branch_name)
+    repo_info['manifestUrl'] = build_manifest_url(repo_info, branch_name)
     return {
-        'schemaVersion': 1,
+        'schemaVersion': 2,
         'branchName': branch_name,
+        'author': profile['author'],
+        'authorSlug': profile['authorSlug'],
         'academy': profile['academy'],
         'major': profile['major'],
         'year': profile['year'],
         'publishedAt': iso_now(),
         'documentCount': len(documents),
         'groupCount': len(groups),
+        'tags': profile.get('tags', []),
+        'summary': profile.get('summary', ''),
         'bundleRoot': bundle_root,
+        'manifestPath': manifest_path,
+        'manifestUrl': repo_info.get('manifestUrl', ''),
         'siteRoot': '.' if SITE_REPO_ROOT == Path('.') else SITE_REPO_ROOT.as_posix(),
         'repo': repo_info,
         'documents': build_shared_documents_preview(documents),
     }
 
 
-def prepare_shared_bundle(worktree_root: Path, manifest: dict) -> Path:
+def prepare_shared_bundle(worktree_root: Path, manifest: dict, library_data: dict) -> Path:
     site_root = worktree_root / SITE_REPO_ROOT if SITE_REPO_ROOT != Path('.') else worktree_root
     bundle_root = site_root / SHARED_NOTES_DIRNAME
     safe_rmtree(bundle_root)
-    shutil.copytree(CONTENT_DIR, bundle_root / 'content')
+    bundle_content_root = bundle_root / 'content'
+    (bundle_content_root / 'imports').mkdir(parents=True, exist_ok=True)
+    (bundle_content_root / 'assets').mkdir(parents=True, exist_ok=True)
+
+    for doc in sort_documents_for_share(library_data.get('documents', [])):
+        source_rel = validate_doc_path(doc.get('path', '')).lstrip('./')
+        source_file = ROOT / source_rel
+        if not source_file.exists() or not source_file.is_file():
+            continue
+        target_file = bundle_root / source_rel
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file, target_file)
+
+        doc_slug = doc.get('slug') or slugify(doc.get('title') or source_file.stem)
+        source_asset_dir = ASSET_DIR / doc_slug
+        target_asset_dir = bundle_content_root / 'assets' / doc_slug
+        safe_rmtree(target_asset_dir)
+        if source_asset_dir.exists() and source_asset_dir.is_dir():
+            shutil.copytree(source_asset_dir, target_asset_dir)
+
+    (bundle_content_root / 'library.json').write_text(
+        json.dumps(library_data, ensure_ascii=False, indent=2),
+        encoding='utf-8',
+    )
     (bundle_root / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
     return bundle_root
 
@@ -229,11 +492,20 @@ def git_status_for_path(worktree_root: Path, repo_path: Path) -> str:
     return result.stdout.strip()
 
 
-def publish_shared_notes_bundle(academy: str, major: str, year: str) -> dict:
+def publish_shared_notes_bundle(
+    academy: str,
+    major: str,
+    year: str,
+    author: str | None = None,
+    tags: str | list[str] | None = None,
+    summary: str | None = None,
+) -> dict:
     ensure_dirs()
     remote_url = ensure_git_remote_origin()
-    branch_name, profile = build_shared_branch_name(academy, major, year)
-    library_data = load_library()
+    library_data = collect_shareable_library_data(load_library())
+    branch_name, profile = build_shared_branch_name(academy, major, year, author, remote_url)
+    profile['tags'] = derive_share_tags(tags, library_data)
+    profile['summary'] = derive_share_summary(summary, library_data)
     manifest = build_shared_manifest(branch_name, profile, remote_url, library_data)
     branch_exists = remote_branch_exists(branch_name)
 
@@ -247,7 +519,7 @@ def publish_shared_notes_bundle(academy: str, major: str, year: str) -> dict:
             else:
                 run_git(['checkout', '-B', branch_name], cwd=worktree_root)
 
-            prepare_shared_bundle(worktree_root, manifest)
+            prepare_shared_bundle(worktree_root, manifest, library_data)
             shared_repo_path = bundle_repo_path()
             status_text = git_status_for_path(worktree_root, shared_repo_path)
             if status_text:
@@ -270,6 +542,7 @@ def publish_shared_notes_bundle(academy: str, major: str, year: str) -> dict:
                 'remoteUrl': remote_url,
                 'documentCount': manifest['documentCount'],
                 'groupCount': manifest['groupCount'],
+                'manifestPath': manifest['manifestPath'],
                 'changed': bool(status_text),
             }
         finally:
@@ -286,10 +559,11 @@ def load_remote_manifest(branch_name: str) -> dict:
     return data
 
 
-def list_shared_note_bundles() -> list[dict]:
-    ensure_git_remote_origin()
+def scan_shared_note_bundles() -> tuple[list[dict], list[dict]]:
+    remote_url = ensure_git_remote_origin()
     result = run_git(['ls-remote', '--heads', 'origin'])
     bundles: list[dict] = []
+    skipped: list[dict] = []
     for line in result.stdout.splitlines():
         try:
             _sha, ref = line.split('\t', 1)
@@ -298,25 +572,105 @@ def list_shared_note_bundles() -> list[dict]:
         if not ref.startswith('refs/heads/'):
             continue
         branch_name = ref[len('refs/heads/'):]
-        if branch_name.count('_') < 2:
+        if not is_share_branch_name(branch_name):
             continue
         try:
             manifest = load_remote_manifest(branch_name)
-        except Exception:
+            item = build_shared_index_item(manifest, branch_name)
+            if not item['repo']:
+                item['repo'] = parse_github_repo(remote_url)
+            bundles.append(item)
+        except Exception as exc:
+            skipped.append({'branchName': branch_name, 'error': str(exc)})
             continue
-        bundles.append({
-            'branchName': manifest.get('branchName') or branch_name,
-            'academy': manifest.get('academy', ''),
-            'major': manifest.get('major', ''),
-            'year': manifest.get('year', ''),
-            'publishedAt': manifest.get('publishedAt', ''),
-            'documentCount': int(manifest.get('documentCount', 0) or 0),
-            'groupCount': int(manifest.get('groupCount', 0) or 0),
-            'documents': manifest.get('documents', [])[:10],
-            'repo': manifest.get('repo', {}),
-        })
-    bundles.sort(key=lambda item: item.get('publishedAt', ''), reverse=True)
-    return bundles
+    return sort_shared_index_items(bundles), skipped
+
+
+def build_shared_index_document() -> dict:
+    remote_url = ensure_git_remote_origin()
+    default_branch = get_remote_default_branch_name()
+    items, skipped = scan_shared_note_bundles()
+    return {
+        'schemaVersion': 1,
+        'generatedAt': iso_now(),
+        'defaultBranch': default_branch,
+        'indexPath': shared_index_repo_path().as_posix(),
+        'remoteUrl': remote_url,
+        'itemCount': len(items),
+        'skippedBranches': skipped,
+        'items': items,
+    }
+
+
+def write_shared_index_file(data: dict, target_file: Path = SHARED_INDEX_FILE) -> Path:
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    target_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    return target_file
+
+
+def load_remote_shared_index() -> dict:
+    default_branch = get_remote_default_branch_name()
+    fetch_remote_branch(default_branch)
+    index_path = shared_index_repo_path().as_posix()
+    result = run_git(['show', f'refs/remotes/origin/{default_branch}:{index_path}'], check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        raise FileNotFoundError('远程默认分支中还没有 shared-index.json')
+    data = json.loads(result.stdout)
+    if not isinstance(data, dict) or not isinstance(data.get('items'), list):
+        raise ValueError('中央 shared-index.json 格式不正确')
+    return data
+
+
+def list_shared_note_bundles(force_scan: bool = False) -> dict:
+    if not force_scan:
+        try:
+            data = load_remote_shared_index()
+            items = sort_shared_index_items([build_shared_index_item(item, item.get('branchName')) for item in data.get('items', [])])
+            return {
+                'items': items,
+                'source': {
+                    'mode': 'shared-index',
+                    'generatedAt': data.get('generatedAt', ''),
+                    'defaultBranch': data.get('defaultBranch', ''),
+                    'indexPath': data.get('indexPath', shared_index_repo_path().as_posix()),
+                },
+            }
+        except Exception as exc:
+            items, skipped = scan_shared_note_bundles()
+            return {
+                'items': items,
+                'source': {
+                    'mode': 'scan-fallback',
+                    'generatedAt': '',
+                    'defaultBranch': get_remote_default_branch_name(),
+                    'indexPath': shared_index_repo_path().as_posix(),
+                    'fallbackReason': str(exc),
+                },
+                'skippedBranches': skipped,
+            }
+    items, skipped = scan_shared_note_bundles()
+    return {
+        'items': items,
+        'source': {
+            'mode': 'scan',
+            'generatedAt': '',
+            'defaultBranch': get_remote_default_branch_name(),
+            'indexPath': shared_index_repo_path().as_posix(),
+        },
+        'skippedBranches': skipped,
+    }
+
+
+def read_share_profile_defaults() -> dict:
+    try:
+        remote_url = ensure_git_remote_origin()
+    except Exception:
+        remote_url = ''
+    return {
+        'author': detect_share_author(remote_url),
+        'remoteUrl': remote_url,
+        'defaultBranch': get_remote_default_branch_name() if remote_url else '',
+    }
 
 
 def rewrite_shared_markdown_assets(markdown: str, source_slug: str, target_slug: str) -> str:
@@ -329,6 +683,96 @@ def rewrite_shared_markdown_assets(markdown: str, source_slug: str, target_slug:
     for old, new in replacements:
         text = text.replace(old, new)
     return text
+
+
+def find_existing_shared_docs_for_branch(data: dict, branch_name: str) -> list[dict]:
+    return [
+        doc
+        for doc in data.get('documents', [])
+        if is_shared_import_entry(doc, branch_name)
+    ]
+
+
+def apply_shared_bundle(site_root: Path, branch_name: str, manifest: dict, bundle_library: dict) -> dict:
+    share_group_root = '/'.join(filter(None, ['共享笔记', manifest.get('academy', ''), manifest.get('major', ''), manifest.get('year', ''), manifest.get('author', '')]))
+    branch_marker = shared_branch_marker(branch_name)
+    imported: list[dict] = []
+    imported_paths: set[str] = set()
+
+    for doc in sort_documents_for_share(bundle_library.get('documents', [])):
+        source_rel = validate_doc_path(doc.get('path', '')).lstrip('./')
+        if not source_rel:
+            continue
+        source_file = (site_root / SHARED_NOTES_DIRNAME / source_rel).resolve()
+        if not source_file.exists() or not source_file.is_file():
+            continue
+        original_slug = doc.get('slug') or slugify(doc.get('title') or source_file.stem)
+        target_slug, target_path = build_shared_import_target(branch_name, original_slug)
+        imported_paths.add(f'./{target_path}')
+        markdown = source_file.read_text(encoding='utf-8')
+        markdown = rewrite_shared_markdown_assets(markdown, original_slug, target_slug)
+
+        source_asset_dir = site_root / SHARED_NOTES_DIRNAME / 'content' / 'assets' / original_slug
+        target_asset_dir = ASSET_DIR / target_slug
+        safe_rmtree(target_asset_dir)
+        if source_asset_dir.exists() and source_asset_dir.is_dir():
+            shutil.copytree(source_asset_dir, target_asset_dir)
+
+        target_file = ROOT / target_path
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(markdown, encoding='utf-8')
+
+        original_group = normalize_group_name(doc.get('group'))
+        target_group = '/'.join(filter(None, [share_group_root, original_group]))
+        source_url = doc.get('sourceUrl') or branch_marker
+        try:
+            order_value = int(doc.get('order', 0) or 0)
+        except (TypeError, ValueError):
+            order_value = None
+        update_library_entry(
+            target_path,
+            doc.get('title') or target_slug,
+            target_slug,
+            'import',
+            source_url,
+            target_group,
+            order_value,
+            extra={
+                'sharedFromBranch': branch_name,
+                'sharedOriginalSlug': original_slug,
+                'sharedOriginalPath': f'./{source_rel}',
+                'sharedSourceUrl': source_url,
+            },
+        )
+        imported.append({
+            'title': doc.get('title') or target_slug,
+            'slug': target_slug,
+            'path': f'./{target_path}',
+            'group': target_group,
+        })
+
+    existing_library = load_library()
+    removed: list[dict] = []
+    for doc in find_existing_shared_docs_for_branch(existing_library, branch_name):
+        path = str(doc.get('path') or '')
+        if path in imported_paths:
+            continue
+        result = delete_document_file(doc)
+        delete_library_entry(path)
+        removed.append({
+            'title': doc.get('title') or path,
+            'slug': doc.get('slug') or '',
+            'path': result['path'],
+        })
+
+    return {
+        'ok': True,
+        'branchName': branch_name,
+        'documentCount': len(imported),
+        'documents': imported,
+        'removedCount': len(removed),
+        'removed': removed,
+    }
 
 
 def import_shared_notes_bundle(branch_name: str) -> dict:
@@ -347,62 +791,7 @@ def import_shared_notes_bundle(branch_name: str) -> dict:
             if not bundle_library_file.exists():
                 raise FileNotFoundError('共享分支中没有可导入的笔记索引')
             bundle_library = normalize_library_data(json.loads(bundle_library_file.read_text(encoding='utf-8')))
-            share_group_root = '/'.join(filter(None, ['共享笔记', manifest.get('academy', ''), manifest.get('major', ''), manifest.get('year', '')]))
-            branch_slug = slugify(branch_name)
-            imported: list[dict] = []
-
-            for doc in sort_documents_for_share(bundle_library.get('documents', [])):
-                source_rel = validate_doc_path(doc.get('path', '')).lstrip('./')
-                if not source_rel:
-                    continue
-                source_file = (site_root / SHARED_NOTES_DIRNAME / source_rel).resolve()
-                if not source_file.exists() or not source_file.is_file():
-                    continue
-                original_slug = doc.get('slug') or slugify(doc.get('title') or source_file.stem)
-                target_slug = slugify(f'{branch_slug}-{original_slug}')
-                target_path = f'content/imports/{target_slug}.md'
-                markdown = source_file.read_text(encoding='utf-8')
-                markdown = rewrite_shared_markdown_assets(markdown, original_slug, target_slug)
-
-                source_asset_dir = site_root / SHARED_NOTES_DIRNAME / 'content' / 'assets' / original_slug
-                target_asset_dir = ASSET_DIR / target_slug
-                if source_asset_dir.exists() and source_asset_dir.is_dir():
-                    safe_rmtree(target_asset_dir)
-                    shutil.copytree(source_asset_dir, target_asset_dir)
-
-                target_file = ROOT / target_path
-                target_file.parent.mkdir(parents=True, exist_ok=True)
-                target_file.write_text(markdown, encoding='utf-8')
-
-                original_group = normalize_group_name(doc.get('group'))
-                target_group = '/'.join(filter(None, [share_group_root, original_group]))
-                source_url = doc.get('sourceUrl') or f'github-branch:{branch_name}'
-                try:
-                    order_value = int(doc.get('order', 0) or 0)
-                except (TypeError, ValueError):
-                    order_value = None
-                update_library_entry(
-                    target_path,
-                    doc.get('title') or target_slug,
-                    target_slug,
-                    'import',
-                    source_url,
-                    target_group,
-                    order_value,
-                )
-                imported.append({
-                    'title': doc.get('title') or target_slug,
-                    'slug': target_slug,
-                    'path': f'./{target_path}',
-                    'group': target_group,
-                })
-
-            return {
-                'ok': True,
-                'branchName': branch_name,
-                'documentCount': len(imported),
-                'documents': imported,
-            }
+            return apply_shared_bundle(site_root, branch_name, manifest, bundle_library)
         finally:
             run_git(['worktree', 'remove', '--force', str(worktree_root)], check=False)
 
@@ -423,11 +812,11 @@ def ensure_dirs() -> None:
                 'slug': '新手引导',
                 'path': './content/imports/新手引导.md',
                 'type': 'import',
-                'group': '帮助',
+                'group': GUIDE_GROUP_NAME,
                 'order': 1
             })
         LIBRARY_FILE.write_text(json.dumps({
-            'groups': [{'name': '帮助', 'order': 1}] if documents else [],
+            'groups': [{'name': GUIDE_GROUP_NAME, 'order': 1}] if documents else [],
             'documents': documents
         }, ensure_ascii=False, indent=2), encoding='utf-8')
 
@@ -485,6 +874,18 @@ def group_leaf_name(group: str | None) -> str:
     return parts[-1] if parts else ''
 
 
+def migrate_guide_group_name(group: str | None) -> str:
+    normalized = normalize_group_name(group)
+    if not normalized:
+        return ''
+    if normalized == LEGACY_GUIDE_GROUP_NAME:
+        return GUIDE_GROUP_NAME
+    legacy_prefix = f'{LEGACY_GUIDE_GROUP_NAME}/'
+    if normalized.startswith(legacy_prefix):
+        return f'{GUIDE_GROUP_NAME}/{normalized[len(legacy_prefix):]}'
+    return normalized
+
+
 def join_group_name(parent: str | None, leaf: str | None) -> str:
     parent_name = validate_group_name(parent)
     leaf_name = validate_group_name(leaf, allow_empty=False)
@@ -523,10 +924,10 @@ def normalize_library_data(data: dict) -> dict:
     seen: set[str] = set()
     for index, group in enumerate(groups, start=1):
         if isinstance(group, dict):
-            name = validate_group_name(group.get('name'))
+            name = validate_group_name(migrate_guide_group_name(group.get('name')))
             order = group.get('order', index)
         else:
-            name = validate_group_name(str(group))
+            name = validate_group_name(migrate_guide_group_name(str(group)))
             order = index
         if not name or name in seen:
             continue
@@ -538,7 +939,7 @@ def normalize_library_data(data: dict) -> dict:
         normalized_groups.append({'name': name, 'order': order_value})
 
     for doc in docs:
-        group = validate_group_name(doc.get('group'))
+        group = validate_group_name(migrate_guide_group_name(doc.get('group')))
         doc['group'] = group
         try:
             doc['order'] = int(doc.get('order', next_order_value(docs, group, exclude_path=doc.get('path'))))
@@ -709,7 +1110,8 @@ def update_library_entry(
     doc_type: str,
     source_url: str | None = None,
     group: str | None = None,
-    order: int | None = None
+    order: int | None = None,
+    extra: dict | None = None,
 ) -> None:
     data = load_library()
     docs = data.setdefault('documents', [])
@@ -740,6 +1142,8 @@ def update_library_entry(
         entry['sourceUrl'] = source_url
     if doc_type == 'main':
         entry['remoteFallback'] = 'https://raw.githubusercontent.com/sqc-cyh/sqc-cyh.github.io/main/docs/LessonsNotes/D2CX_Xinanyuan/note.md'
+    if extra:
+        entry.update(extra)
     if found:
         found.update(entry)
     else:
@@ -807,6 +1211,83 @@ def delete_document_file(entry: dict) -> dict:
         'slug': slug,
         'deletedAssets': bool(asset_dir and not asset_dir.exists())
     }
+
+
+def rewrite_markdown_asset_paths(markdown: str, old_slug: str, new_slug: str) -> str:
+    if not old_slug or not new_slug or old_slug == new_slug:
+        return markdown
+    replacements = [
+        (f'./content/assets/{old_slug}/', f'./content/assets/{new_slug}/'),
+        (f'content/assets/{old_slug}/', f'content/assets/{new_slug}/'),
+        (f'/content/assets/{old_slug}/', f'/content/assets/{new_slug}/'),
+    ]
+    text = markdown
+    for old, new in replacements:
+        text = text.replace(old, new)
+    return text
+
+
+def rewrite_front_matter_title(markdown: str, title: str) -> str:
+    body = markdown or ''
+    if body.startswith('---'):
+        match = re.match(r'^---\n(.*?)\n---\n?', body, flags=re.DOTALL)
+        if match:
+            front_matter = match.group(1)
+            content = body[match.end():]
+            if re.search(r'^title\s*:', front_matter, flags=re.MULTILINE):
+                front_matter = re.sub(r'^title\s*:.*$', f'title: {title}', front_matter, count=1, flags=re.MULTILINE)
+            else:
+                front_matter = f'title: {title}\n{front_matter}'.strip()
+            return f'---\n{front_matter}\n---\n\n{content.lstrip()}'
+    stripped = body.strip()
+    return f'---\ntitle: {title}\n---\n\n{stripped}\n'
+
+
+def rename_document(path: str, title: str) -> dict:
+    clean_title = (title or '').strip()
+    if not clean_title:
+        raise ValueError('文档名不能为空')
+    data, docs, index = find_library_entry(path)
+    entry = docs[index]
+    if entry.get('type') == 'main':
+        raise ValueError('主文档不能通过资源管理器重命名')
+
+    old_rel_path = validate_doc_path(entry['path'])
+    old_file = ROOT / old_rel_path
+    if not old_file.exists() or not old_file.is_file():
+        raise FileNotFoundError(f'文档不存在：{entry["path"]}')
+
+    new_slug = slugify(clean_title)
+    new_rel_path = f'content/imports/{new_slug}.md'
+    new_normalized_path = f'./{validate_doc_path(new_rel_path)}'
+    duplicate = next((doc for doc in docs if doc.get('path') == new_normalized_path and doc.get('path') != entry['path']), None)
+    if duplicate:
+        raise ValueError(f'目标文档已存在：{new_normalized_path}')
+
+    markdown = old_file.read_text(encoding='utf-8')
+    old_slug = entry.get('slug') or old_file.stem
+    markdown = rewrite_front_matter_title(markdown, clean_title)
+    markdown = rewrite_markdown_asset_paths(markdown, old_slug, new_slug)
+
+    new_file = ROOT / new_rel_path
+    new_file.parent.mkdir(parents=True, exist_ok=True)
+    new_file.write_text(markdown, encoding='utf-8')
+    if new_file.resolve() != old_file.resolve():
+        old_file.unlink()
+
+    old_asset_dir = ASSET_DIR / old_slug if old_slug else None
+    new_asset_dir = ASSET_DIR / new_slug if new_slug else None
+    if old_asset_dir and new_asset_dir and old_asset_dir.exists() and old_asset_dir.is_dir() and old_asset_dir != new_asset_dir:
+        if new_asset_dir.exists():
+            shutil.rmtree(new_asset_dir)
+        shutil.move(str(old_asset_dir), str(new_asset_dir))
+
+    entry['title'] = clean_title
+    entry['slug'] = new_slug
+    entry['path'] = new_normalized_path
+    docs.sort(key=document_sort_key)
+    save_library(data)
+    return entry
 
 
 def validate_import_url(url: str) -> str:
@@ -1148,9 +1629,16 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._send_json({'error': str(exc)}, 500)
         if parsed.path == '/api/library':
             return self._send_json(load_library())
+        if parsed.path == '/api/share-profile-defaults':
+            try:
+                return self._send_json({'ok': True, **read_share_profile_defaults()})
+            except Exception as exc:
+                return self._send_json({'error': str(exc)}, 500)
         if parsed.path == '/api/shared-notes':
             try:
-                return self._send_json({'ok': True, 'items': list_shared_note_bundles()})
+                query = parse_qs(parsed.query)
+                force_scan = (query.get('mode') or [''])[0].strip().lower() == 'scan'
+                return self._send_json({'ok': True, **list_shared_note_bundles(force_scan=force_scan)})
             except Exception as exc:
                 return self._send_json({'error': str(exc)}, 500)
         return super().do_GET()
@@ -1167,7 +1655,14 @@ class Handler(SimpleHTTPRequestHandler):
             if parsed.path == '/api/publish-shared-notes':
                 length = int(self.headers.get('Content-Length', '0'))
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
-                result = publish_shared_notes_bundle(payload.get('academy'), payload.get('major'), payload.get('year'))
+                result = publish_shared_notes_bundle(
+                    payload.get('academy'),
+                    payload.get('major'),
+                    payload.get('year'),
+                    payload.get('author'),
+                    payload.get('tags'),
+                    payload.get('summary'),
+                )
                 print(f'[share:publish] {result["branchName"]} docs={result["documentCount"]}')
                 return self._send_json(result)
             if parsed.path == '/api/import-shared-notes':
@@ -1190,6 +1685,12 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(length).decode('utf-8'))
                 entry = update_document_meta(payload['path'], payload.get('group'), payload.get('order'))
                 print(f'[meta] {entry["path"]} -> group={entry.get("group", "")!r}, order={entry.get("order")}')
+                return self._send_json({'ok': True, 'document': entry})
+            if parsed.path == '/api/rename-document':
+                length = int(self.headers.get('Content-Length', '0'))
+                payload = json.loads(self.rfile.read(length).decode('utf-8'))
+                entry = rename_document(payload['path'], payload.get('title'))
+                print(f'[rename] {payload["path"]!r} -> {entry["path"]!r}')
                 return self._send_json({'ok': True, 'document': entry})
             if parsed.path == '/api/create-group':
                 length = int(self.headers.get('Content-Length', '0'))

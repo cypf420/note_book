@@ -1,0 +1,5 @@
+.playwright-cli/
+output/
+output-*.png
+infosec_project_full/editable_note_site/runtime/server-state.json
+infosec_project_full/editable_note_site/scripts/__pycache__/
